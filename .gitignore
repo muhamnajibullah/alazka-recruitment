@@ -10,6 +10,7 @@ venv/
 
 # Environment and secrets
 .env
+db.local.php
 
 # Local runtime files
 gunicorn.pid

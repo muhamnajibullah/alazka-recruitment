@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login - Teacher Recruit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin-login.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <main class="login-page">
+    <section class="login-panel" aria-labelledby="loginTitle">
+      <div class="logo-wrap">
+        <img src="Image/logo%20al%20azhar%203.png" alt="Al Azhar Kelapa Gading">
+      </div>
+
+      <div class="login-copy">
+        <p>Teacher Recruit</p>
+        <h1 id="loginTitle">Admin Login</h1>
+      </div>
+
+      <form class="login-form" id="loginForm" novalidate>
+        <div class="field">
+          <label for="username">Username</label>
+          <div class="input-shell">
+            <i data-lucide="user"></i>
+            <input id="username" name="username" type="text" autocomplete="username" placeholder="Enter username" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-shell is-password">
+            <i data-lucide="lock-keyhole"></i>
+            <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required>
+            <button class="password-toggle" id="passwordToggle" type="button" aria-label="Show password" aria-pressed="false">
+              <i data-lucide="eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <p class="login-error" id="loginError" role="alert"></p>
+
+        <button class="login-button" type="submit">
+          <span>Login</span>
+          <i data-lucide="log-in"></i>
+        </button>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/admin-login.js"></script>
+</body>
+</html>

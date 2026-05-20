@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Teacher Recruit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin-dashboard.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <!-- Sidebar statis. Klik nav ditangani JavaScript lewat atribut data-section. -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">
+        <img src="Image/logo%20al%20azhar%203.png" alt="Al Azhar Kelapa Gading">
+      </div>
+      <div>
+        <p class="brand-title">Recruitment</p>
+        <span class="brand-subtitle">Al Azhar Kelapa Gading</span>
+      </div>
+    </div>
+
+    <nav>
+      <div class="nav-section">
+        <p class="nav-heading">Question Management</p>
+        <a class="nav-link" href="admin_dashboard.html?section=course" data-section="course">
+          <span class="nav-icon"><i data-lucide="layout-grid"></i></span>
+          <span>Course</span>
+        </a>
+        <a class="nav-link" href="admin_dashboard.html?section=questions" data-section="questions">
+          <span class="nav-icon"><i data-lucide="list"></i></span>
+          <span>Question Bank</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-heading">Exam & Results</p>
+        <a class="nav-link" href="admin_dashboard.html?section=results" data-section="results">
+          <span class="nav-icon"><i data-lucide="file-text"></i></span>
+          <span>Test Results</span>
+        </a>
+        <a class="nav-link" href="admin_dashboard.html?section=token" data-section="token">
+          <span class="nav-icon"><i data-lucide="key-round"></i></span>
+          <span>Exam Token</span>
+        </a>
+      </div>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <a class="nav-link" href="mailto:recruitment@alazka.sch.id">
+        <span class="nav-icon"><i data-lucide="circle-help"></i></span>
+        <span>Help Center</span>
+      </a>
+      <a class="nav-link" href="admin_login.html" data-action="logout">
+        <span class="nav-icon"><i data-lucide="log-out"></i></span>
+        <span>Logout</span>
+      </a>
+    </div>
+  </aside>
+
+  <!-- Judul header berubah mengikuti section aktif: course, questions, atau results. -->
+  <header class="topbar">
+    <div class="topbar-title">
+      <strong id="pageTitle">Course List</strong>
+      <span>Alazka Recruit</span>
+    </div>
+
+    <div class="profile" id="profileMenuRoot">
+      <div class="profile-copy">
+        <span class="profile-name">Admin Jakarta</span>
+        <span class="profile-meta"><span class="admin-pill">Jakarta</span> Recruitment Staff</span>
+      </div>
+      <div class="avatar">BB</div>
+      <button class="profile-menu-toggle" type="button" data-action="toggle-profile-menu" aria-label="Open profile menu" aria-expanded="false">
+        <i class="profile-chevron" data-lucide="chevron-down"></i>
+      </button>
+
+      <div class="profile-menu" id="profileMenu">
+        <div class="profile-menu-head">
+          <strong>Options (3)</strong>
+          <i data-lucide="layout-grid"></i>
+        </div>
+        <button class="profile-menu-item" type="button">
+          <i data-lucide="user"></i>
+          <span>Change Account</span>
+        </button>
+        <button class="profile-menu-item" type="button">
+          <i data-lucide="circle-help"></i>
+          <span>Language</span>
+        </button>
+        <button class="profile-menu-item" type="button" data-action="logout">
+          <i data-lucide="log-out"></i>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="content-inner">
+      <!-- Flash menampilkan pesan sukses/error setelah aksi admin. -->
+      <div class="flash" id="flash" role="status" aria-live="polite"></div>
+      <!-- Konten tabel dashboard dirender dari js/admin-dashboard.js. -->
+      <div id="dashboardApp"></div>
+    </div>
+  </main>
+
+  <!-- Modal create/view/edit course dan question dirender dinamis ke modalContent. -->
+  <div class="modal-layer" id="modalLayer">
+    <div id="modalContent"></div>
+  </div>
+
+  <!-- Popup confirmation reusable untuk delete, submit, edit, activate, dan inactive. -->
+  <div class="confirm-layer" id="confirmLayer" aria-hidden="true">
+    <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <button class="confirm-close" type="button" data-confirm="cancel" aria-label="Close confirmation">
+        <i data-lucide="x"></i>
+      </button>
+      <div class="confirm-icon" id="confirmIcon">
+        <i data-lucide="circle-help"></i>
+      </div>
+      <h2 id="confirmTitle">Ready to submit?</h2>
+      <p id="confirmMessage">Don&apos;t worry, you can edit your submission anytime</p>
+      <div class="confirm-actions">
+        <button class="confirm-cancel" type="button" data-confirm="cancel">Cancel</button>
+        <button class="confirm-submit" type="button" data-confirm="ok">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Urutan penting: recruitment-store.js harus dimuat sebelum admin-dashboard.js. -->
+  <script src="js/recruitment-store.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/admin-dashboard.js"></script>
+</body>
+</html>

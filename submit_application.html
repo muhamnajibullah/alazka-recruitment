@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teacher Application Form</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/application.css">
+</head>
+<body>
+  <main class="page" id="applicationPage">
+    <!-- Bagian kiri berisi form submit pelamar. -->
+    <section class="form-side" aria-labelledby="form-title">
+      <img class="brand" src="Image/logo%20al%20azhar%203.png" alt="Al-Azhar Kelapa Gading">
+
+      <h1 class="title" id="form-title">Teacher Application Form</h1>
+      <p class="subtitle">Complete your information to apply as a teacher in our system</p>
+      <div class="rule" aria-hidden="true"></div>
+
+      <form class="application-form" id="applicationForm" novalidate>
+        <div class="field-group">
+          <label for="fullName">Full Name</label>
+          <input id="fullName" name="fullName" type="text" autocomplete="name" placeholder="Enter your full name">
+          <p class="field-error" id="fullNameError"></p>
+        </div>
+
+        <div class="field-group">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" placeholder="Enter your email">
+          <p class="field-error" id="emailError"></p>
+        </div>
+
+        <div class="field-group">
+          <label for="phone">Phone Number</label>
+          <input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Enter your phone number">
+          <p class="field-error" id="phoneError"></p>
+        </div>
+
+        <div class="field-group">
+          <label for="region">Region</label>
+          <!-- Region disimpan bersama data application agar admin bisa memfilter asal kandidat. -->
+          <select id="region" name="region">
+            <option value="">Select region</option>
+            <option value="Jakarta">Jakarta</option>
+            <option value="Surabaya">Surabaya</option>
+          </select>
+          <p class="field-error" id="regionError"></p>
+        </div>
+
+        <div class="field-group">
+          <label for="education">Position</label>
+          <!-- Pilihan education memakai 4 level default production: TK, SD, SMP, SMA. -->
+          <select id="education" name="education">
+            <option value="">Select position</option>
+          </select>
+          <p class="field-error" id="educationError"></p>
+        </div>
+
+        <div class="field-group">
+          <label for="course">Course</label>
+          <!-- Pilihan course tetap berasal dari database dan berubah mengikuti education yang dipilih. -->
+          <select id="course" name="course" disabled>
+            <option value="">Select available course</option>
+          </select>
+          <p class="field-error" id="courseError"></p>
+        </div>
+
+        <div class="field-group">
+          <label for="examToken">Exam Token</label>
+          <input id="examToken" name="examToken" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="Enter 4 digit token">
+          <p class="field-error" id="examTokenError"></p>
+        </div>
+
+        <button class="start-button" type="submit">Start Test</button>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </form>
+
+      <footer class="footer">
+        <span>&copy; 2026 Divisi Pengembangan Alazka</span>
+        <a href="mailto:recruitment@alazka.sch.id">Contact Us</a>
+      </footer>
+    </section>
+
+    <!-- Bagian kanan hanya visual/ilustrasi, tidak terhubung ke backend. -->
+    <aside class="visual-side" aria-hidden="true">
+      <img class="hero-image" src="Image/download%20(12)%201.png" alt="">
+    </aside>
+  </main>
+
+  <!-- Modal sukses muncul setelah data berhasil tersimpan ke MySQL. -->
+  <div class="modal" id="successModal" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+    <div class="dialog">
+      <h2 id="successTitle">Application Saved</h2>
+      <p>Your application data has been recorded. You can continue to the next test step.</p>
+      <button type="button" id="closeModal">Continue</button>
+    </div>
+  </div>
+
+  <!-- Halaman selection test ditampilkan setelah data application berhasil disimpan. -->
+  <main class="selection-page" id="selectionPage" hidden>
+    <header class="test-topbar">
+      <div class="test-brand">
+        <strong>Selection Test</strong>
+        <span>Alazka Recruit</span>
+      </div>
+      <div class="test-header-actions">
+        <div class="test-timer" aria-label="Remaining test time">
+          <span>Time Left</span>
+          <strong id="testTimer">60:00</strong>
+        </div>
+        <div class="candidate-chip">
+          <div class="candidate-copy">
+            <strong id="candidateHeaderName">Candidate</strong>
+            <span><mark>Guest</mark> Teacher</span>
+          </div>
+          <div class="candidate-avatar" id="candidateAvatar">CT</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="test-shell" aria-labelledby="testTitle">
+      <div class="test-head">
+        <button class="test-back" type="button" id="testBackButton" aria-label="Back to application form">&larr;</button>
+        <div>
+          <h1 id="testTitle">Selection Test</h1>
+          <p id="testCandidateLine"></p>
+        </div>
+      </div>
+
+      <form id="selectionTestForm" class="question-list" novalidate></form>
+
+      <div class="test-pagination" id="testPagination">
+        <button class="test-nav-button" type="button" id="prevQuestions">Back</button>
+        <div class="test-page-numbers" id="testPageNumbers" aria-label="Question pages"></div>
+        <button class="test-nav-button is-primary" type="button" id="nextQuestions">Next</button>
+        <button class="test-nav-button is-primary" type="button" id="finishTest">Finish</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal confirm-test-modal" id="finishConfirmModal" role="dialog" aria-modal="true" aria-labelledby="finishConfirmTitle">
+    <div class="dialog">
+      <h2 id="finishConfirmTitle">Submit Selection Test?</h2>
+      <p>Your selected answers will be submitted for review. Unanswered questions will remain blank.</p>
+      <div class="confirm-test-actions">
+        <button class="confirm-cancel-button" type="button" id="cancelFinishTest">Cancel</button>
+        <button type="button" id="confirmFinishTest">Submit Test</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Halaman hasil test muncul setelah jawaban selesai dinilai dan disimpan ke database. -->
+  <main class="result-page" id="resultPage" hidden>
+    <section class="result-card" aria-labelledby="resultTitle">
+      <img class="result-logo" src="Image/logo%20al%20azhar%203.png" alt="Al-Azhar Kelapa Gading">
+      <!-- <h1 id="resultTitle">Title</h1> -->
+      <p class="result-message">Thank You for Completing the Assessment</p>
+
+      <!-- <h2>Description</h2> -->
+      <div class="result-description">
+        <p>Your responses have been securely submitted and are currently under review.</p>
+        <p>Our recruitment team will carefully evaluate your assessment and notify you regarding the next stage of the process.</p>
+        <p>We appreciate your time and participation.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Urutan penting: recruitment-store.js harus dimuat sebelum submit-application.js. -->
+  <script src="js/recruitment-store.js"></script>
+  <script src="js/submit-application.js"></script>
+</body>
+</html>
