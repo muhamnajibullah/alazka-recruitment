@@ -439,6 +439,50 @@ button {
   font-weight: 700;
 }
 
+.table-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.course-mode-toggle {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #c6cbd4;
+  border-radius: 5px;
+  padding: 3px;
+  background: #ffffff;
+}
+
+.course-mode-toggle button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 12px;
+  color: #5f6b7a;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.course-mode-toggle button.is-active {
+  color: #ffffff;
+  background: #06333c;
+}
+
+.course-mode-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
 .count-badge {
   min-height: 28px;
   padding: 0 13px;
@@ -542,6 +586,7 @@ button {
 }
 
 .filter-inline-field {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -552,12 +597,43 @@ button {
   height: 42px;
   border: 1px solid #cbd4e4;
   border-radius: 5px;
-  padding: 0 12px;
+  padding: 0 36px 0 12px;
   color: #4c5875;
   background: #ffffff;
   font-family: inherit;
   font-size: 12px;
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.filter-inline-field.has-chevron > svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: #667084;
+  pointer-events: none;
+  stroke-width: 2;
+}
+
+.course-filter .filter-inline-group,
+.position-filter .filter-inline-group {
+  justify-content: flex-start;
+}
+
+.course-filter-field select {
+  width: 172px;
+}
+
+.course-status-filter-field select {
+  width: 132px;
+}
+
+.position-name-filter-field select {
+  width: 190px;
 }
 
 .filter-inline-field select:focus {
@@ -1127,6 +1203,13 @@ button {
   width: 16px;
   height: 16px;
   accent-color: #0b6978;
+}
+
+.position-empty-note {
+  padding: 12px;
+  color: #7c8798;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .course-examples {
@@ -2598,6 +2681,21 @@ button {
 
   .result-view-toggle button {
     flex: 1;
+  }
+
+  .table-head-actions,
+  .course-mode-toggle {
+    width: 100%;
+  }
+
+  .table-head-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .course-mode-toggle button {
+    flex: 1;
+    justify-content: center;
   }
 
   .filter-inline-field select {

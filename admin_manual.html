@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual Admin - Recruitment Alazka</title>
+  <style>
+    :root {
+      --sidebar: #06333c;
+      --page: #f4f6f8;
+      --surface: #ffffff;
+      --line: #c7d1e3;
+      --line-soft: #e8edf4;
+      --ink: #080a30;
+      --muted: #687386;
+      --green: #17b42b;
+      --green-bg: #dcf7e1;
+      --blue: #126fff;
+      --red: #ff2c4b;
+      --red-bg: #ffe6eb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: "Poppins", "Segoe UI", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      background: var(--page);
+      padding: 16mm 14mm;
+    }
+
+    .cover {
+      min-height: 54mm;
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 18px;
+      align-items: start;
+      padding: 18px;
+      color: #ffffff;
+      background: var(--sidebar);
+      border-radius: 8px;
+    }
+
+    .logo {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .logo img {
+      width: 40px;
+      height: auto;
+    }
+
+    .cover h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.18;
+    }
+
+    .cover p {
+      max-width: 620px;
+      margin: 10px 0 0;
+      color: #d9eff3;
+      font-size: 12px;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 5px;
+      padding: 0 10px;
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .section {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+      break-inside: avoid;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 48px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .section h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.3;
+    }
+
+    .section-tag {
+      border-radius: 4px;
+      padding: 5px 9px;
+      color: #0d7030;
+      background: var(--green-bg);
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .section-body {
+      padding: 14px 16px 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .item {
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      padding: 12px;
+      background: #fbfcfe;
+    }
+
+    .item h3 {
+      margin: 0 0 6px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .steps {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .steps li {
+      margin: 0 0 7px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .steps strong {
+      color: var(--ink);
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10.5px;
+    }
+
+    .table th,
+    .table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .table th {
+      color: var(--ink);
+      background: #f7f9fc;
+      font-size: 11px;
+    }
+
+    .table td {
+      color: var(--muted);
+    }
+
+    .status {
+      display: inline-block;
+      border-radius: 4px;
+      padding: 3px 7px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .status.green {
+      color: #0d7030;
+      background: var(--green-bg);
+    }
+
+    .status.red {
+      color: var(--red);
+      background: var(--red-bg);
+    }
+
+    .note {
+      margin-top: 10px;
+      border-left: 4px solid var(--blue);
+      border-radius: 4px;
+      padding: 10px 12px;
+      color: #334155;
+      background: #eef5ff;
+      font-size: 11px;
+    }
+
+    .warning {
+      border-left-color: var(--red);
+      background: #fff3f5;
+    }
+
+    .toc {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .toc span {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      color: #334155;
+      background: #ffffff;
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+
+    .footer {
+      margin-top: 14px;
+      color: #7c8798;
+      font-size: 10px;
+      text-align: center;
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+      }
+
+      .section,
+      .cover {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="cover">
+      <div class="logo">
+        <img src="Image/logo%20al%20azhar%203.png" alt="Logo Al Azhar">
+      </div>
+      <div>
+        <h1>Manual Admin<br>Website Recruitment</h1>
+        <p>Panduan singkat untuk mengelola course, position, question bank, test result, recapitulation, dan exam token pada Admin Dashboard.</p>
+        <div class="meta-row">
+          <span class="pill">Alazka Recruit</span>
+          <span class="pill">Admin Dashboard</span>
+          <span class="pill">Versi 2026</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="toc">
+      <span>1. Login Admin</span>
+      <span>2. Course & Position</span>
+      <span>3. Question Bank</span>
+      <span>4. Test Results</span>
+      <span>5. Recapitulation</span>
+      <span>6. Exam Token</span>
+    </div>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>1. Login Admin</h2>
+        <span class="section-tag">Akses Awal</span>
+      </div>
+      <div class="section-body">
+        <ol class="steps">
+          <li>Buka halaman <strong>Admin Login</strong>.</li>
+          <li>Masukkan <strong>username</strong> dan <strong>password</strong> admin.</li>
+          <li>Setelah berhasil, admin akan masuk ke dashboard sesuai <strong>region</strong> akunnya.</li>
+        </ol>
+        <div class="note">Data yang terlihat di dashboard mengikuti region admin. Admin Jakarta dan Surabaya tidak saling mengubah data.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>2. Mengelola Course & Position</h2>
+        <span class="section-tag">Question Management</span>
+      </div>
+      <div class="section-body">
+        <div class="grid">
+          <div class="item">
+            <h3>Course</h3>
+            <p>Digunakan untuk membuat kategori tes, mengatur position yang boleh mengambil course, dan status publish/draft.</p>
+          </div>
+          <div class="item">
+            <h3>Position</h3>
+            <p>Digunakan untuk membuat pilihan posisi pelamar. Position yang dibuat hanya berlaku untuk region admin tersebut.</p>
+          </div>
+        </div>
+        <table class="table" style="margin-top:12px;">
+          <thead>
+            <tr>
+              <th>Fitur</th>
+              <th>Cara Pakai</th>
+              <th>Catatan</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Create Course</td>
+              <td>Klik <strong>Create Course</strong>, isi nama, deskripsi, pilih position, lalu Publish atau Save as Draft.</td>
+              <td>Course publish dapat dipakai untuk Question Bank.</td>
+            </tr>
+            <tr>
+              <td>Edit Course</td>
+              <td>Klik icon edit pada baris course, ubah nama, deskripsi, status, atau position yang terhubung.</td>
+              <td>Gunakan ini untuk menambahkan position baru ke course yang sudah ada.</td>
+            </tr>
+            <tr>
+              <td>Toggle Course/Position</td>
+              <td>Gunakan tombol <strong>Course</strong> atau <strong>Position</strong> di kanan atas tabel.</td>
+              <td>Tombol ini hanya mengganti tampilan menu.</td>
+            </tr>
+            <tr>
+              <td>Add Position</td>
+              <td>Masuk tab Position, klik <strong>Add Position</strong>, isi nama position, lalu Save.</td>
+              <td>Setelah position dibuat, edit Course yang ingin memakai position tersebut, lalu centang position baru dan simpan.</td>
+            </tr>
+            <tr>
+              <td>Filter & Sort</td>
+              <td>Gunakan filter Position/Status dan klik header Name untuk sorting A-Z atau Z-A.</td>
+              <td>Filter aktif setelah tombol Apply ditekan.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>3. Mengelola Question Bank</h2>
+        <span class="section-tag">Soal Tes</span>
+      </div>
+      <div class="section-body">
+        <ol class="steps">
+          <li>Klik menu <strong>Question Bank</strong>.</li>
+          <li>Klik <strong>Create Question Bank</strong>.</li>
+          <li>Pilih course, isi passing score, pilih randomize enable/disable.</li>
+          <li>Tambahkan soal <strong>Multiple Choice</strong> atau <strong>Essay</strong>.</li>
+          <li>Klik Publish jika sudah siap digunakan.</li>
+        </ol>
+        <table class="table" style="margin-top:12px;">
+          <thead>
+            <tr>
+              <th>Fitur</th>
+              <th>Fungsi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Edit Question Bank</td>
+              <td>Mengubah course, passing score, randomize, status publish, serta isi soal yang sudah dibuat.</td>
+            </tr>
+            <tr>
+              <td>View Question Bank</td>
+              <td>Melihat detail question bank dan daftar soal tanpa mengubah data.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">Question Bank terhubung ke position melalui Course. Jika membuat position baru, tambahkan dulu position tersebut ke Course yang sesuai lewat Edit Course.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>4. Melihat Test Results</h2>
+        <span class="section-tag">History</span>
+      </div>
+      <div class="section-body">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Kolom/Aksi</th>
+              <th>Fungsi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Filter Course/Position</td>
+              <td>Memudahkan admin mencari hasil berdasarkan course atau posisi tertentu.</td>
+            </tr>
+            <tr>
+              <td>View</td>
+              <td>Melihat detail jawaban, nilai, course, position, dan status peserta.</td>
+            </tr>
+            <tr>
+              <td>Review Essay</td>
+              <td>Melihat jawaban essay peserta dan mengunduh jawaban essay sebagai PDF. Tombol ini nonaktif jika test tidak memiliki essay.</td>
+            </tr>
+            <tr>
+              <td>Give Score</td>
+              <td>Menginput nilai essay manual. Jika ingin bobot berbeda, atur bobot Multiple Choice dan Essay. Jika tidak, biarkan 50% dan 50% agar nilai final menjadi rata-rata keduanya.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">Jika Question Bank hanya berisi Multiple Choice, nilai langsung final saat peserta submit test.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>5. Recapitulation</h2>
+        <span class="section-tag">Rekap Nilai</span>
+      </div>
+      <div class="section-body">
+        <ol class="steps">
+          <li>Buka menu <strong>Test Results</strong>.</li>
+          <li>Pilih toggle <strong>Recapitulation</strong>.</li>
+          <li>Gunakan filter jika ingin melihat course atau position tertentu.</li>
+          <li>Klik View untuk melihat semua test milik peserta yang sama.</li>
+          <li>Klik tombol Email pada baris peserta yang berstatus Passed untuk mengirim email hasil.</li>
+        </ol>
+        <table class="table" style="margin-top:12px;">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Arti</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="status green">Passed</span></td>
+              <td>Rata-rata nilai final sudah memenuhi passing score.</td>
+            </tr>
+            <tr>
+              <td><span class="status red">Not Passed</span></td>
+              <td>Rata-rata nilai final belum memenuhi passing score.</td>
+            </tr>
+            <tr>
+              <td><span class="status red">Waiting for Review</span></td>
+              <td>Masih ada test essay yang belum disimpan final melalui Give Score.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>6. Exam Token</h2>
+        <span class="section-tag">Akses Tes</span>
+      </div>
+      <div class="section-body">
+        <ol class="steps">
+          <li>Buka menu <strong>Exam Token</strong>.</li>
+          <li>Klik <strong>Generate Token</strong> untuk membuat token aktif.</li>
+          <li>Berikan token tersebut kepada kandidat yang akan mengerjakan tes.</li>
+        </ol>
+        <div class="note warning">Token bersifat sementara. Jika token kedaluwarsa, admin perlu generate token baru.</div>
+      </div>
+    </section>
+
+    <p class="footer">Manual Admin Recruitment Alazka - dibuat untuk penggunaan internal admin.</p>
+  </main>
+</body>
+</html>

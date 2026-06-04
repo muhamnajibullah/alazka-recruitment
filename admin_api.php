@@ -3,7 +3,7 @@ require_once __DIR__ . '/db.php';
 
 // Durasi token exam diatur di sini agar perubahan timer tidak perlu menyentuh query SQL panjang.
 // Ubah angka detik ini saja, contoh: 10, 30, 60, 300.
-const EXAM_TOKEN_EXPIRES_SECONDS = 30;
+const EXAM_TOKEN_EXPIRES_SECONDS = 90;
 
 // Header CORS diperlukan agar dashboard dari Live Server port 5500/file lokal
 // tetap bisa memanggil API PHP di port 8000.
@@ -93,23 +93,64 @@ function adminUserFromRequest(array $data = []): string
     return preg_match('/^[a-z0-9_]{3,80}$/', $adminUser) ? $adminUser : 'admin_jakarta';
 }
 
-function allowedEducationLevels(): array
+function normalizeEducationLevel(string $value): string
 {
-    return [
-        'Guru/Karyawan TK',
-        'Guru/Karyawan SD',
-        'Guru/Karyawan SMP',
-        'Guru/Karyawan SMA',
-        'Cleaning Service',
-        'Petugas Keamanan',
-        'Driver',
-        'Teknisi',
-        'Petugas Perpus',
-        'Purchasing Staff',
+    $value = cleanString($value);
+    $aliases = [
+        'TK' => 'Guru/Karyawan TK',
+        'SD' => 'Guru/Karyawan SD',
+        'SMP' => 'Guru/Karyawan SMP',
+        'SMA' => 'Guru/Karyawan SMA',
     ];
+
+    return $aliases[$value] ?? $value;
 }
 
-function cleanCourseEducationLevels(array $data): array
+function fetchEducationLevels(PDO $pdo, string $adminRegion): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT
+            id,
+            name,
+            region_scope AS regionScope,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+         FROM education_levels
+         WHERE region_scope = :region_scope
+         ORDER BY name ASC, id ASC'
+    );
+    $stmt->execute([':region_scope' => $adminRegion]);
+
+    return $stmt->fetchAll();
+}
+
+function educationLevelNames(PDO $pdo, string $adminRegion): array
+{
+    return array_map(static fn($row) => (string) $row['name'], fetchEducationLevels($pdo, $adminRegion));
+}
+
+function educationLevelExists(PDO $pdo, string $name, string $adminRegion, int $excludeId = 0): bool
+{
+    $idFilter = $excludeId > 0 ? ' AND id <> :exclude_id' : '';
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM education_levels
+         WHERE name = :name
+           AND region_scope = :region_scope' . $idFilter
+    );
+    $params = [
+        ':name' => $name,
+        ':region_scope' => $adminRegion,
+    ];
+    if ($excludeId > 0) {
+        $params[':exclude_id'] = $excludeId;
+    }
+    $stmt->execute($params);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function cleanCourseEducationLevels(PDO $pdo, string $adminRegion, array $data): array
 {
     // Course baru bisa dipakai beberapa posisi, jadi frontend mengirim array educationLevels.
     // educationLevel tetap dibaca sebagai fallback supaya data lama/modal lama tidak langsung rusak.
@@ -118,10 +159,10 @@ function cleanCourseEducationLevels(array $data): array
         $rawLevels = [$rawLevels];
     }
 
-    $allowed = allowedEducationLevels();
+    $allowed = educationLevelNames($pdo, $adminRegion);
     $levels = [];
     foreach ($rawLevels as $level) {
-        $level = cleanString($level);
+        $level = normalizeEducationLevel((string) $level);
         if (in_array($level, $allowed, true) && !in_array($level, $levels, true)) {
             $levels[] = $level;
         }
@@ -135,14 +176,16 @@ function courseEducationLevelsFromStorage(string $storedValue): array
     // Course position bisa format lama string biasa atau format baru JSON array.
     $decoded = json_decode($storedValue, true);
     if (is_array($decoded)) {
-        return array_values(array_filter(array_map('strval', $decoded)));
+        return array_values(array_filter(array_map(static fn($level) => normalizeEducationLevel((string) $level), $decoded)));
     }
 
-    return [$storedValue];
+    $level = normalizeEducationLevel($storedValue);
+    return $level === '' ? [] : [$level];
 }
 
 function courseMatchesEducation(string $storedValue, string $education): bool
 {
+    $education = normalizeEducationLevel($education);
     foreach (courseEducationLevelsFromStorage($storedValue) as $level) {
         if ($level === $education || $level === str_replace('Guru/Karyawan ', '', $education) || 'Guru/Karyawan ' . $level === $education) {
             return true;
@@ -182,6 +225,40 @@ function resultHasPassed(PDO $pdo, array $result, string $adminRegion): bool
     return (int) $result['score'] >= passingScoreForResult($pdo, $result, $adminRegion);
 }
 
+function educationLevelUsageCount(PDO $pdo, string $name, string $adminRegion): int
+{
+    $usage = 0;
+
+    // Debug delete Position: course menyimpan position sebagai JSON/string snapshot, jadi pencocokan dilakukan di PHP.
+    $stmt = $pdo->prepare('SELECT education_level FROM courses WHERE region_scope = :region_scope');
+    $stmt->execute([':region_scope' => $adminRegion]);
+    foreach ($stmt->fetchAll() as $course) {
+        if (courseMatchesEducation((string) $course['education_level'], $name)) {
+            $usage++;
+        }
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM teacher_applications
+         WHERE region = :region_scope
+           AND education = :name'
+    );
+    $stmt->execute([':region_scope' => $adminRegion, ':name' => $name]);
+    $usage += (int) $stmt->fetchColumn();
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM test_results
+         WHERE region = :region_scope
+           AND education = :name'
+    );
+    $stmt->execute([':region_scope' => $adminRegion, ':name' => $name]);
+    $usage += (int) $stmt->fetchColumn();
+
+    return $usage;
+}
+
 function normalizeCandidateEmail(string $email): string
 {
     return strtolower(trim($email));
@@ -205,10 +282,15 @@ function candidateRecapKey(string $email, string $phone): string
     return normalizeCandidateEmail($email) . '|' . normalizeCandidatePhone($phone);
 }
 
-function recapHasPendingEssayScore(array $result): bool
+function recapHasPendingFinalScore(array $result): bool
 {
-    // Jika test memiliki essay dan essay score masih kosong/0, recap belum boleh diputuskan lulus atau tidak.
-    return ($result['hasEssay'] ?? false) === true && (int) ($result['essayScore'] ?? 0) <= 0;
+    // Debug recap: MC-only langsung final karena score dihitung otomatis saat finish_test.
+    // Test yang punya essay baru final setelah admin menyimpan Give Score/weighted score.
+    if (($result['hasEssay'] ?? false) !== true) {
+        return false;
+    }
+
+    return ($result['weightedScoreFinalized'] ?? false) !== true;
 }
 
 function questionSnapshotScores(array $questions): array
@@ -410,8 +492,7 @@ function fetchState(PDO $pdo, string $adminRegion, string $adminUser): array
     $courses = $stmt->fetchAll();
 
     foreach ($courses as &$course) {
-        $levels = json_decode((string) $course['educationLevel'], true);
-        $course['educationLevels'] = is_array($levels) ? $levels : [(string) $course['educationLevel']];
+        $course['educationLevels'] = courseEducationLevelsFromStorage((string) $course['educationLevel']);
     }
     unset($course);
 
@@ -439,9 +520,8 @@ function fetchState(PDO $pdo, string $adminRegion, string $adminUser): array
     foreach ($questionBanks as &$bank) {
         // questionsJson disimpan sebagai JSON string di MySQL, lalu dikirim sebagai array ke frontend.
         $decodedQuestions = json_decode((string) $bank['questionsJson'], true);
-        $decodedLevels = json_decode((string) $bank['educationLevel'], true);
         $bank['questions'] = is_array($decodedQuestions) ? $decodedQuestions : [];
-        $bank['educationLevels'] = is_array($decodedLevels) ? $decodedLevels : [(string) $bank['educationLevel']];
+        $bank['educationLevels'] = courseEducationLevelsFromStorage((string) $bank['educationLevel']);
         unset($bank['questionsJson']);
     }
     unset($bank);
@@ -524,6 +604,7 @@ function fetchState(PDO $pdo, string $adminRegion, string $adminUser): array
     $activeToken = $stmt->fetch() ?: null;
 
     return [
+        'educationLevels' => fetchEducationLevels($pdo, $adminRegion),
         'courses' => $courses,
         'questionBanks' => $questionBanks,
         'applications' => $applications,
@@ -552,8 +633,7 @@ function fetchCourses(PDO $pdo, string $adminRegion): array
 
     foreach ($courses as &$course) {
         // educationLevels menjaga frontend tetap kompatibel dengan format lama string dan format baru JSON array.
-        $levels = json_decode((string) $course['educationLevel'], true);
-        $course['educationLevels'] = is_array($levels) ? $levels : [(string) $course['educationLevel']];
+        $course['educationLevels'] = courseEducationLevelsFromStorage((string) $course['educationLevel']);
         // Total questions tidak ditampilkan di tabel Course, jadi tidak memakai JSON_LENGTH agar kompatibel dengan MySQL lama.
         $course['totalQuestions'] = 0;
     }
@@ -593,8 +673,7 @@ function fetchQuestionBanks(PDO $pdo, string $adminRegion, bool $includeQuestion
 
     foreach ($questionBanks as &$bank) {
         // List hanya membawa jumlah soal; detail soal dikirim saat View/Edit agar payload menu tetap kecil.
-        $decodedLevels = json_decode((string) $bank['educationLevel'], true);
-        $bank['educationLevels'] = is_array($decodedLevels) ? $decodedLevels : [(string) $bank['educationLevel']];
+        $bank['educationLevels'] = courseEducationLevelsFromStorage((string) $bank['educationLevel']);
         $bank['questionCount'] = 0;
         if ($includeQuestions) {
             $decodedQuestions = json_decode((string) ($bank['questionsJson'] ?? ''), true);
@@ -799,7 +878,7 @@ function fetchRecapitulations(PDO $pdo, string $adminRegion, int $page = 1, int 
                 'resultIds' => [],
                 'scores' => [],
                 'passingScores' => [],
-                'hasPendingEssayScore' => false,
+                'hasPendingFinalScore' => false,
                 'testCount' => 0,
             ];
         }
@@ -810,7 +889,7 @@ function fetchRecapitulations(PDO $pdo, string $adminRegion, int $page = 1, int 
         $groups[$key]['scores'][] = (int) $row['score'];
         // Passing grade setiap course dikumpulkan lalu dirata-ratakan untuk menentukan status akhir recap.
         $groups[$key]['passingScores'][] = passingScoreForResult($pdo, ['course' => $row['course'], 'education' => $row['education']], $adminRegion);
-        $groups[$key]['hasPendingEssayScore'] = $groups[$key]['hasPendingEssayScore'] || recapHasPendingEssayScore($row);
+        $groups[$key]['hasPendingFinalScore'] = $groups[$key]['hasPendingFinalScore'] || recapHasPendingFinalScore($row);
         $groups[$key]['testCount']++;
     }
 
@@ -818,7 +897,7 @@ function fetchRecapitulations(PDO $pdo, string $adminRegion, int $page = 1, int 
         // Status recap memakai rata-rata final score peserta dibanding rata-rata passing grade semua test yang ia kerjakan.
         $averageScore = count($group['scores']) > 0 ? (int) round(array_sum($group['scores']) / count($group['scores'])) : 0;
         $averagePassingScore = count($group['passingScores']) > 0 ? (int) round(array_sum($group['passingScores']) / count($group['passingScores'])) : 75;
-        $status = $group['hasPendingEssayScore'] ? 'Waiting for Review' : ($averageScore >= $averagePassingScore ? 'Passed' : 'Not Passed');
+        $status = $group['hasPendingFinalScore'] ? 'Waiting for Review' : ($averageScore >= $averagePassingScore ? 'Passed' : 'Not Passed');
 
         return [
             'id' => $group['id'],
@@ -912,7 +991,7 @@ function fetchRecapitulationDetail(PDO $pdo, string $adminRegion, string $recapI
     $passingScores = array_map(static fn(array $result) => (int) $result['passingScore'], $results);
     $averageScore = (int) round(array_sum($scores) / count($scores));
     $averagePassingScore = (int) round(array_sum($passingScores) / count($passingScores));
-    $hasPendingEssayScore = array_reduce($results, static fn(bool $pending, array $result) => $pending || recapHasPendingEssayScore($result), false);
+    $hasPendingFinalScore = array_reduce($results, static fn(bool $pending, array $result) => $pending || recapHasPendingFinalScore($result), false);
 
     return [
         'id' => rawurlencode($targetKey),
@@ -923,8 +1002,8 @@ function fetchRecapitulationDetail(PDO $pdo, string $adminRegion, string $recapI
         'course' => uniqueTextList(array_column($results, 'course')),
         'score' => $averageScore,
         'passingScore' => $averagePassingScore,
-        // Status menunggu review selama ada essay score yang belum diisi/masih 0; setelah itu baru dibandingkan passing grade rata-rata.
-        'status' => $hasPendingEssayScore ? 'Waiting for Review' : ($averageScore >= $averagePassingScore ? 'Passed' : 'Not Passed'),
+        // MC-only langsung masuk perhitungan; essay menunggu Give Score agar score final sudah tersimpan.
+        'status' => $hasPendingFinalScore ? 'Waiting for Review' : ($averageScore >= $averagePassingScore ? 'Passed' : 'Not Passed'),
         'testCount' => count($results),
         'results' => $results,
     ];
@@ -969,6 +1048,37 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'courses') {
         // Endpoint ringan untuk menu Course: tidak membawa result atau snapshot soal kandidat.
         respond(200, ['success' => true, 'courses' => fetchCourses($pdo, $adminRegion)]);
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'education_levels') {
+        // Position dipisah per region agar admin Jakarta/Surabaya tidak saling mengubah pilihan.
+        respond(200, ['success' => true, 'educationLevels' => fetchEducationLevels($pdo, $adminRegion)]);
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'education_level') {
+        $positionId = (int) ($_GET['id'] ?? 0);
+        if ($positionId <= 0) {
+            respond(422, ['success' => false, 'message' => 'Invalid position ID.']);
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT
+                id,
+                name,
+                region_scope AS regionScope,
+                created_at AS createdAt,
+                updated_at AS updatedAt
+             FROM education_levels
+             WHERE id = :id
+               AND region_scope = :region_scope'
+        );
+        $stmt->execute([':id' => $positionId, ':region_scope' => $adminRegion]);
+        $position = $stmt->fetch();
+        if (!$position) {
+            respond(404, ['success' => false, 'message' => 'Position was not found for this admin region.']);
+        }
+
+        respond(200, ['success' => true, 'educationLevel' => $position]);
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'question_banks') {
@@ -1061,11 +1171,64 @@ try {
     $adminRegion = adminRegionFromRequest($data);
     $adminUser = adminUserFromRequest($data);
 
+    if ($action === 'create_education_level') {
+        $name = normalizeEducationLevel((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            respond(422, ['success' => false, 'message' => 'Position name is required.']);
+        }
+
+        if (educationLevelExists($pdo, $name, $adminRegion)) {
+            respond(409, ['success' => false, 'message' => 'Position already exists for this region.']);
+        }
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO education_levels (name, region_scope)
+             VALUES (:name, :region_scope)'
+        );
+        $stmt->execute([':name' => $name, ':region_scope' => $adminRegion]);
+
+        respond(201, [
+            'success' => true,
+            'message' => 'Position has been added.',
+            'educationLevel' => ['id' => (int) $pdo->lastInsertId(), 'name' => $name],
+        ]);
+    }
+
+    if ($action === 'delete_education_level') {
+        $id = (int) ($data['id'] ?? 0);
+        if ($id <= 0) {
+            respond(422, ['success' => false, 'message' => 'Invalid position ID.']);
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT name
+             FROM education_levels
+             WHERE id = :id
+               AND region_scope = :region_scope'
+        );
+        $stmt->execute([':id' => $id, ':region_scope' => $adminRegion]);
+        $name = (string) ($stmt->fetchColumn() ?: '');
+        if ($name === '') {
+            respond(404, ['success' => false, 'message' => 'Position was not found for this admin region.']);
+        }
+
+        if (educationLevelUsageCount($pdo, $name, $adminRegion) > 0) {
+            respond(409, [
+                'success' => false,
+                'message' => 'Position tidak bisa dihapus karena masih dipakai oleh course atau test result di region ini.',
+            ]);
+        }
+
+        $stmt = $pdo->prepare('DELETE FROM education_levels WHERE id = :id AND region_scope = :region_scope');
+        $stmt->execute([':id' => $id, ':region_scope' => $adminRegion]);
+        respond(200, ['success' => true, 'message' => 'Position has been deleted.']);
+    }
+
     // Create/update course memakai blok yang sama karena field yang divalidasi identik.
     if ($action === 'create_course' || $action === 'update_course') {
         $name = cleanString($data['name'] ?? '');
         $description = cleanString($data['description'] ?? '');
-        $educationLevels = cleanCourseEducationLevels($data);
+        $educationLevels = cleanCourseEducationLevels($pdo, $adminRegion, $data);
         $educationLevel = json_encode($educationLevels, JSON_UNESCAPED_SLASHES);
         $isPublished = cleanStatus($data['isPublished'] ?? 1);
 

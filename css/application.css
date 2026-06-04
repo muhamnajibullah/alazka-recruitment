@@ -96,7 +96,9 @@ label {
 }
 
 input,
-select {
+select,
+.position-combobox-toggle,
+.course-combobox-toggle {
   width: 100%;
   min-height: clamp(46px, 3.1vw, 58px);
   border: 2px solid #d2d2d2;
@@ -127,9 +129,132 @@ input::placeholder {
 }
 
 input:focus,
-select:focus {
+select:focus,
+.position-combobox-toggle:focus-visible,
+.course-combobox-toggle:focus-visible {
   border-color: #0a7281;
   box-shadow: 0 0 0 4px rgba(10, 114, 129, 0.14);
+}
+
+.native-position-select,
+.native-course-select {
+  display: none;
+}
+
+.position-combobox,
+.course-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.position-combobox-toggle,
+.course-combobox-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #7d8796 50%),
+    linear-gradient(135deg, #7d8796 50%, transparent 50%);
+  background-position:
+    calc(100% - 31px) 50%,
+    calc(100% - 19px) 50%;
+  background-size: 12px 12px, 12px 12px;
+  background-repeat: no-repeat;
+  padding-right: 62px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.position-combobox-toggle span:first-child,
+.course-combobox-toggle span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-combobox.is-open .position-combobox-toggle,
+.course-combobox.is-open .course-combobox-toggle {
+  border-color: #0a7281;
+  box-shadow: 0 0 0 4px rgba(10, 114, 129, 0.14);
+}
+
+.position-combobox-toggle:disabled,
+.course-combobox-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.position-combobox-chevron,
+.course-combobox-chevron {
+  display: none;
+}
+
+.position-combobox-panel,
+.course-combobox-panel {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  display: none;
+  border: 2px solid #d2d2d2;
+  border-radius: 7px;
+  padding: 10px;
+  background: #ffffff;
+  box-shadow: 0 18px 34px rgba(5, 25, 35, 0.16);
+}
+
+.position-combobox.is-open .position-combobox-panel,
+.course-combobox.is-open .course-combobox-panel {
+  display: block;
+}
+
+.position-search,
+.course-search {
+  min-height: 42px;
+  border-width: 1px;
+  border-radius: 5px;
+  font-size: clamp(14px, 0.95vw, 17px);
+}
+
+.position-options,
+.course-options {
+  max-height: 230px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-right: 4px;
+}
+
+.position-option,
+.course-option {
+  min-height: 40px;
+  border: 1px solid #e1e5ee;
+  border-radius: 5px;
+  padding: 9px 12px;
+  color: #1b2440;
+  background: #ffffff;
+  font-size: clamp(14px, 0.95vw, 17px);
+  text-align: left;
+}
+
+.position-option:hover,
+.position-option.is-selected,
+.course-option:hover,
+.course-option.is-selected {
+  border-color: #0a7281;
+  background: #eef8fa;
+}
+
+.position-empty,
+.course-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: clamp(13px, 0.9vw, 16px);
 }
 
 .field-error {
@@ -988,14 +1113,18 @@ select:focus {
   }
 
   input,
-  select {
+  select,
+  .position-combobox-toggle,
+  .course-combobox-toggle {
     min-height: 40px;
     border-width: 1px;
     font-size: 15px;
     padding-left: 14px;
   }
 
-  select {
+  select,
+  .position-combobox-toggle,
+  .course-combobox-toggle {
     padding-right: 48px;
     background-position:
       calc(100% - 26px) 50%,
@@ -1080,7 +1209,9 @@ select:focus {
   }
 
   input,
-  select {
+  select,
+  .position-combobox-toggle,
+  .course-combobox-toggle {
     min-height: 54px;
     font-size: 16px;
     padding-left: 18px;

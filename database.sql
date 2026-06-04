@@ -67,6 +67,40 @@ CREATE TABLE IF NOT EXISTS courses (
   INDEX idx_courses_published (is_published)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Master data Position/Education Level per region.
+-- Import ulang aman karena tabel dibuat IF NOT EXISTS dan seed memakai INSERT IGNORE.
+CREATE TABLE IF NOT EXISTS education_levels (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  region_scope VARCHAR(80) NOT NULL DEFAULT 'Jakarta',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_education_level_region (name, region_scope),
+  INDEX idx_education_levels_region (region_scope)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO education_levels (name, region_scope) VALUES
+  ('Guru/Karyawan TK', 'Jakarta'),
+  ('Guru/Karyawan SD', 'Jakarta'),
+  ('Guru/Karyawan SMP', 'Jakarta'),
+  ('Guru/Karyawan SMA', 'Jakarta'),
+  ('Cleaning Service', 'Jakarta'),
+  ('Petugas Keamanan', 'Jakarta'),
+  ('Driver', 'Jakarta'),
+  ('Teknisi', 'Jakarta'),
+  ('Petugas Perpus', 'Jakarta'),
+  ('Purchasing Staff', 'Jakarta'),
+  ('Guru/Karyawan TK', 'Surabaya'),
+  ('Guru/Karyawan SD', 'Surabaya'),
+  ('Guru/Karyawan SMP', 'Surabaya'),
+  ('Guru/Karyawan SMA', 'Surabaya'),
+  ('Cleaning Service', 'Surabaya'),
+  ('Petugas Keamanan', 'Surabaya'),
+  ('Driver', 'Surabaya'),
+  ('Teknisi', 'Surabaya'),
+  ('Petugas Perpus', 'Surabaya'),
+  ('Purchasing Staff', 'Surabaya');
+
 -- Bank soal versi baru: satu baris menyimpan banyak soal dalam questions_json.
 CREATE TABLE IF NOT EXISTS question_banks (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

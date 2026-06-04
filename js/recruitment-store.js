@@ -1,18 +1,14 @@
 (function () {
-  // Daftar level production yang selalu tersedia di form dan dashboard.
-  // Course tetap berasal dari database, jadi daftar course bisa kosong sampai admin mengisinya.
-  const educationLevels = [
-    "Guru/Karyawan TK",
-    "Guru/Karyawan SD",
-    "Guru/Karyawan SMP",
-    "Guru/Karyawan SMA",
-    "Cleaning Service",
-    "Petugas Keamanan",
-    "Driver",
-    "Teknisi",
-    "Petugas Perpus",
-    "Purchasing Staff"
-  ];
+  // Position diisi dari tabel education_levels. Array ini tetap diekspos agar file lama bisa membaca cache terbaru.
+  const educationLevels = [];
+
+  function syncEducationLevelCache(levels) {
+    const names = (Array.isArray(levels) ? levels : [])
+      .map((level) => typeof level === "string" ? level : level?.name)
+      .filter(Boolean);
+    educationLevels.splice(0, educationLevels.length, ...[...new Set(names)]);
+    return educationLevels;
+  }
 
   // Preview statis seperti Live Server tidak bisa menjalankan PHP, jadi API diarahkan ke server PHP lokal.
   // Production tetap memakai path relatif agar request mengikuti domain hosting yang sedang dibuka.
@@ -87,7 +83,10 @@
   // Dipakai form submit untuk mengisi dropdown education dan course.
   async function getPublishedCoursesByEducation() {
     const payload = await request(apiUrl("submit_application.php?action=courses"));
+    syncEducationLevelCache(payload.educationLevels || []);
     return {
+      educationLevels: payload.educationLevels || [],
+      educationLevelsByRegion: payload.educationLevelsByRegion || {},
       coursesByEducation: payload.coursesByEducation || {},
       coursesByRegionEducation: payload.coursesByRegionEducation || {}
     };
@@ -131,7 +130,9 @@
   // Mengambil snapshot data dashboard: courses, questions, dan applications.
   async function getState() {
     const payload = await request(apiUrl(`admin_api.php?action=state&region=${encodeURIComponent(adminRegion())}&adminUser=${encodeURIComponent(adminUser())}`));
+    syncEducationLevelCache(payload.educationLevels || []);
     return {
+      educationLevels: payload.educationLevels || [],
       courses: payload.courses || [],
       questionBanks: payload.questionBanks || [],
       applications: payload.applications || [],
@@ -142,6 +143,17 @@
   async function getCourses() {
     const payload = await request(apiUrl(`admin_api.php?action=courses&region=${encodeURIComponent(adminRegion())}`));
     return payload.courses || [];
+  }
+
+  async function getEducationLevels() {
+    const payload = await request(apiUrl(`admin_api.php?action=education_levels&region=${encodeURIComponent(adminRegion())}`));
+    syncEducationLevelCache(payload.educationLevels || []);
+    return payload.educationLevels || [];
+  }
+
+  async function getEducationLevel(id) {
+    const payload = await request(apiUrl(`admin_api.php?action=education_level&region=${encodeURIComponent(adminRegion())}&id=${encodeURIComponent(id)}`));
+    return payload.educationLevel || null;
   }
 
   async function getQuestionBanks() {
@@ -241,6 +253,8 @@
     hasFinishedSelectionTest,
     getState,
     getCourses,
+    getEducationLevels,
+    getEducationLevel,
     getQuestionBanks,
     getQuestionBank,
     getResults,
@@ -248,6 +262,8 @@
     getRecapitulation,
     getResult,
     getActiveToken,
+    addEducationLevel: (data) => adminAction("create_education_level", data),
+    deleteEducationLevel: (id) => adminAction("delete_education_level", { id }),
     addCourse: (data) => adminAction("create_course", data),
     updateCourse: (id, data) => adminAction("update_course", { id, ...data }),
     setCourseStatus: (id, isPublished) => adminAction("set_course_status", { id, isPublished }),

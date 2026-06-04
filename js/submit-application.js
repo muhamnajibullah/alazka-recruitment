@@ -1,6 +1,6 @@
 (function () {
   // Ubah versi ini setiap kali alur submit/token berubah agar mudah memastikan JS terbaru sudah ter-load.
-  const submitApplicationVersion = "20260529-rtl-arabic";
+  const submitApplicationVersion = "20260604-course-search";
   window.SubmitApplicationVersion = submitApplicationVersion;
 
   // Referensi elemen halaman form application.
@@ -9,7 +9,18 @@
   const formSide = document.querySelector(".form-side");
   const region = document.querySelector("#region");
   const education = document.querySelector("#education");
+  const positionCombobox = document.querySelector("#positionCombobox");
+  const positionComboboxToggle = document.querySelector("#positionComboboxToggle");
+  const positionComboboxLabel = document.querySelector("#positionComboboxLabel");
+  const positionComboboxPanel = document.querySelector("#positionComboboxPanel");
+  const positionSearch = document.querySelector("#positionSearch");
+  const positionOptions = document.querySelector("#positionOptions");
   const course = document.querySelector("#course");
+  const courseCombobox = document.querySelector("#courseCombobox");
+  const courseComboboxToggle = document.querySelector("#courseComboboxToggle");
+  const courseComboboxLabel = document.querySelector("#courseComboboxLabel");
+  const courseSearch = document.querySelector("#courseSearch");
+  const courseOptions = document.querySelector("#courseOptions");
   const statusText = document.querySelector("#status");
   const startButton = form.querySelector(".start-button");
 
@@ -54,6 +65,7 @@
   const mobileFormAutoScrollDurationMs = 950;
   let coursesByEducation = {};
   let coursesByRegionEducation = {};
+  let educationLevelsByRegion = {};
   let testState = null;
   let pendingApplication = null;
   let pendingTest = null;
@@ -256,32 +268,159 @@
     tokenStatus.textContent = "";
   }
 
-  // Mengambil course dari database, tetapi education level tetap memakai 4 opsi default production.
-  async function fillEducationLevels() {
-    coursesByEducation = await window.RecruitmentStore.getPublishedCoursesByEducation();
-    coursesByRegionEducation = coursesByEducation.coursesByRegionEducation || {};
-    coursesByEducation = coursesByEducation.coursesByEducation || {};
+  function availableEducationLevels() {
+    return region.value
+      ? (educationLevelsByRegion[region.value] || [])
+      : window.RecruitmentStore.educationLevels;
+  }
+
+  function availableCourses() {
+    const regionCourses = coursesByRegionEducation[region.value] || {};
+    return region.value
+      ? (regionCourses[education.value] || [])
+      : (coursesByEducation[education.value] || []);
+  }
+
+  function closePositionCombobox() {
+    positionCombobox?.classList.remove("is-open");
+    positionComboboxToggle?.setAttribute("aria-expanded", "false");
+  }
+
+  function closeCourseCombobox() {
+    courseCombobox?.classList.remove("is-open");
+    courseComboboxToggle?.setAttribute("aria-expanded", "false");
+  }
+
+  function openPositionCombobox() {
+    if (!positionCombobox || !positionSearch) {
+      return;
+    }
+
+    positionCombobox.classList.add("is-open");
+    positionComboboxToggle.setAttribute("aria-expanded", "true");
+    positionSearch.value = "";
+    renderPositionOptions();
+    positionSearch.focus();
+  }
+
+  function openCourseCombobox() {
+    if (!courseCombobox || !courseSearch || course.disabled) {
+      return;
+    }
+
+    courseCombobox.classList.add("is-open");
+    courseComboboxToggle.setAttribute("aria-expanded", "true");
+    courseSearch.value = "";
+    renderCourseOptions();
+    courseSearch.focus();
+  }
+
+  function syncPositionComboboxLabel() {
+    if (!positionComboboxLabel) {
+      return;
+    }
+
+    positionComboboxLabel.textContent = education.value || "Select position";
+  }
+
+  function syncCourseComboboxLabel() {
+    if (!courseComboboxLabel) {
+      return;
+    }
+
+    courseComboboxLabel.textContent = course.value || "Select available course";
+  }
+
+  function renderPositionOptions() {
+    if (!positionOptions) {
+      return;
+    }
+
+    const query = String(positionSearch?.value || "").trim().toLowerCase();
+    const levels = availableEducationLevels();
+    const filteredLevels = levels.filter((level) => String(level).toLowerCase().includes(query));
+
+    if (filteredLevels.length === 0) {
+      positionOptions.innerHTML = '<div class="position-empty">No position found.</div>';
+      return;
+    }
+
+    // Debug position dropdown: opsi custom ini tetap menulis ke select asli agar submit form lama tetap aman.
+    positionOptions.innerHTML = filteredLevels.map((level) => `
+      <button class="position-option${level === education.value ? " is-selected" : ""}" type="button" data-position-value="${escapeHtml(level)}" role="option" aria-selected="${level === education.value ? "true" : "false"}">
+        ${escapeHtml(level)}
+      </button>
+    `).join("");
+  }
+
+  function renderCourseOptions() {
+    if (!courseOptions) {
+      return;
+    }
+
+    const query = String(courseSearch?.value || "").trim().toLowerCase();
+    const filteredCourses = availableCourses()
+      .filter((courseName) => String(courseName).toLowerCase().includes(query));
+
+    if (filteredCourses.length === 0) {
+      courseOptions.innerHTML = '<div class="course-empty">No course found.</div>';
+      return;
+    }
+
+    // Debug course dropdown: opsi custom tetap menulis ke select asli agar submit form dan validasi lama tidak berubah.
+    courseOptions.innerHTML = filteredCourses.map((courseName) => `
+      <button class="course-option${courseName === course.value ? " is-selected" : ""}" type="button" data-course-value="${escapeHtml(courseName)}" role="option" aria-selected="${courseName === course.value ? "true" : "false"}">
+        ${escapeHtml(courseName)}
+      </button>
+    `).join("");
+  }
+
+  function selectPosition(level) {
+    education.value = level;
+    syncPositionComboboxLabel();
+    closePositionCombobox();
+    closeCourseCombobox();
+    // Trigger change agar updateCourses tetap memakai alur lama yang sudah stabil.
+    education.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function selectCourse(courseName) {
+    course.value = courseName;
+    syncCourseComboboxLabel();
+    renderCourseOptions();
+    closeCourseCombobox();
+    course.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function updateEducationOptions() {
     const currentValue = education.value;
+    const levels = availableEducationLevels();
 
     education.innerHTML = '<option value="">Select position</option>';
-    window.RecruitmentStore.educationLevels.forEach((level) => {
+    levels.forEach((level) => {
       const option = document.createElement("option");
       option.value = level;
       option.textContent = level;
       education.appendChild(option);
     });
 
-    if (window.RecruitmentStore.educationLevels.includes(currentValue)) {
-      education.value = currentValue;
-    }
+    education.value = levels.includes(currentValue) ? currentValue : "";
+    syncPositionComboboxLabel();
+    renderPositionOptions();
+  }
+
+  // Mengambil course dan position dari database agar form kandidat mengikuti master data per region.
+  async function fillEducationLevels() {
+    const choices = await window.RecruitmentStore.getPublishedCoursesByEducation();
+    educationLevelsByRegion = choices.educationLevelsByRegion || {};
+    coursesByRegionEducation = choices.coursesByRegionEducation || {};
+    coursesByEducation = choices.coursesByEducation || {};
+    updateEducationOptions();
   }
 
   // Setelah education dipilih, dropdown course hanya menampilkan course yang sesuai level itu.
   function updateCourses() {
-    const regionCourses = coursesByRegionEducation[region.value] || {};
-    const selectedCourses = region.value
-      ? (regionCourses[education.value] || [])
-      : (coursesByEducation[education.value] || []);
+    const selectedCourses = availableCourses();
     const currentValue = course.value;
 
     course.innerHTML = '<option value="">Select available course</option>';
@@ -294,10 +433,22 @@
 
     // Course baru bisa dipilih setelah admin membuat course aktif dan question bank-nya published.
     course.disabled = region.value === "" || education.value === "" || selectedCourses.length === 0;
+    if (courseComboboxToggle) {
+      courseComboboxToggle.disabled = course.disabled;
+    }
 
     if (selectedCourses.includes(currentValue)) {
       course.value = currentValue;
+    } else {
+      course.value = "";
     }
+
+    if (course.disabled) {
+      closeCourseCombobox();
+    }
+
+    syncCourseComboboxLabel();
+    renderCourseOptions();
   }
 
   // Dipanggil saat halaman pertama dibuka.
@@ -586,7 +737,59 @@
   }
 
   education.addEventListener("change", updateCourses);
-  region.addEventListener("change", updateCourses);
+  region.addEventListener("change", () => {
+    updateEducationOptions();
+    updateCourses();
+  });
+  positionComboboxToggle?.addEventListener("click", () => {
+    if (positionCombobox?.classList.contains("is-open")) {
+      closePositionCombobox();
+      return;
+    }
+
+    openPositionCombobox();
+  });
+  positionSearch?.addEventListener("input", renderPositionOptions);
+  positionOptions?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-position-value]");
+    if (!option) {
+      return;
+    }
+
+    selectPosition(option.dataset.positionValue || "");
+  });
+  courseComboboxToggle?.addEventListener("click", () => {
+    if (courseCombobox?.classList.contains("is-open")) {
+      closeCourseCombobox();
+      return;
+    }
+
+    openCourseCombobox();
+  });
+  courseSearch?.addEventListener("input", renderCourseOptions);
+  courseOptions?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-course-value]");
+    if (!option) {
+      return;
+    }
+
+    selectCourse(option.dataset.courseValue || "");
+  });
+  document.addEventListener("click", (event) => {
+    if (positionCombobox && !positionCombobox.contains(event.target)) {
+      closePositionCombobox();
+    }
+
+    if (courseCombobox && !courseCombobox.contains(event.target)) {
+      closeCourseCombobox();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closePositionCombobox();
+      closeCourseCombobox();
+    }
+  });
 
   function showTokenPage(application) {
     // Jika baris ini tidak terpanggil setelah Start Test, biasanya browser masih memakai JS lama dari cache.

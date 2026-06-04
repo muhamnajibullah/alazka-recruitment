@@ -157,6 +157,19 @@ function initDatabase(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
 
+    // Master Position per region. Course tetap menyimpan nama position sebagai snapshot agar relasi data lama aman.
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS education_levels (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            region_scope VARCHAR(80) NOT NULL DEFAULT \'Jakarta\',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_education_level_region (name, region_scope),
+            INDEX idx_education_levels_region (region_scope)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS question_banks (
             id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -196,6 +209,7 @@ function initDatabase(PDO $pdo): void
     // Course position bisa berisi JSON array multi-position; ukuran lama VARCHAR(80) terlalu pendek.
     $pdo->exec('ALTER TABLE courses MODIFY education_level VARCHAR(500) NOT NULL');
     ensureColumn($pdo, 'courses', 'region_scope', "VARCHAR(80) NOT NULL DEFAULT 'Jakarta'");
+    ensureColumn($pdo, 'education_levels', 'region_scope', "VARCHAR(80) NOT NULL DEFAULT 'Jakarta'");
     ensureColumn($pdo, 'exam_tokens', 'region_scope', "VARCHAR(80) NOT NULL DEFAULT 'Jakarta'");
     ensureColumn($pdo, 'exam_tokens', 'admin_user', "VARCHAR(80) NOT NULL DEFAULT 'admin_jakarta'");
     ensureColumn($pdo, 'exam_tokens', 'expires_at', 'DATETIME NULL');
@@ -213,6 +227,111 @@ function initDatabase(PDO $pdo): void
     ensureColumnType($pdo, 'question_banks', 'questions_json', 'LONGTEXT NOT NULL');
     ensureColumnType($pdo, 'test_results', 'questions_json', 'LONGTEXT NULL');
     ensureColumnType($pdo, 'test_results', 'answers_json', 'LONGTEXT NULL');
+    migratePositionTableToEducationLevels($pdo);
+    ensureEducationLevelSeedData($pdo);
+}
+
+function defaultEducationLevelSeeds(): array
+{
+    return [
+        'Guru/Karyawan TK',
+        'Guru/Karyawan SD',
+        'Guru/Karyawan SMP',
+        'Guru/Karyawan SMA',
+        'Cleaning Service',
+        'Petugas Keamanan',
+        'Driver',
+        'Teknisi',
+        'Petugas Perpus',
+        'Purchasing Staff',
+    ];
+}
+
+function normalizeEducationLevelSeed(string $value): string
+{
+    $value = trim($value);
+    $aliases = [
+        'TK' => 'Guru/Karyawan TK',
+        'SD' => 'Guru/Karyawan SD',
+        'SMP' => 'Guru/Karyawan SMP',
+        'SMA' => 'Guru/Karyawan SMA',
+    ];
+
+    return $aliases[$value] ?? $value;
+}
+
+function educationLevelsFromStoredValue(string $storedValue): array
+{
+    $decoded = json_decode($storedValue, true);
+    if (is_array($decoded)) {
+        return array_values(array_filter(array_map(static fn($level) => normalizeEducationLevelSeed((string) $level), $decoded)));
+    }
+
+    $level = normalizeEducationLevelSeed($storedValue);
+    return $level === '' ? [] : [$level];
+}
+
+function insertEducationLevelSeed(PDO $pdo, string $name, string $region): void
+{
+    if ($name === '' || $region === '') {
+        return;
+    }
+
+    // INSERT IGNORE menjaga import/migrasi production tidak mengubah row position yang sudah ada.
+    $stmt = $pdo->prepare(
+        'INSERT IGNORE INTO education_levels (name, region_scope)
+         VALUES (:name, :region_scope)'
+    );
+    $stmt->execute([
+        ':name' => $name,
+        ':region_scope' => $region,
+    ]);
+}
+
+function tableExists(PDO $pdo, string $table): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = :table_name'
+    );
+    $stmt->execute([':table_name' => $table]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function migratePositionTableToEducationLevels(PDO $pdo): void
+{
+    if (!tableExists($pdo, 'position')) {
+        return;
+    }
+
+    // Debug rollback: jika tabel `position` sempat dibuat, datanya disalin balik ke education_levels.
+    $pdo->exec(
+        'INSERT IGNORE INTO education_levels (name, region_scope, created_at, updated_at)
+         SELECT name, region_scope, created_at, updated_at
+         FROM `position`'
+    );
+}
+
+function ensureEducationLevelSeedData(PDO $pdo): void
+{
+    // Seed awal mengikuti daftar hardcoded lama untuk setiap region admin yang sudah ada.
+    foreach (['Jakarta', 'Surabaya'] as $region) {
+        foreach (defaultEducationLevelSeeds() as $name) {
+            insertEducationLevelSeed($pdo, $name, $region);
+        }
+    }
+
+    // Debug migrasi: position yang pernah tersimpan di course lama ikut dimasukkan ke master table region terkait.
+    $stmt = $pdo->query('SELECT education_level, region_scope FROM courses');
+    foreach ($stmt->fetchAll() as $course) {
+        $region = (string) ($course['region_scope'] ?? 'Jakarta');
+        foreach (educationLevelsFromStoredValue((string) ($course['education_level'] ?? '')) as $name) {
+            insertEducationLevelSeed($pdo, $name, $region);
+        }
+    }
 }
 
 function ensureCourseRegionUniqueIndex(PDO $pdo): void
