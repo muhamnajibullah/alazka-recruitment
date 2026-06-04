@@ -513,6 +513,34 @@ button {
   flex-wrap: wrap;
 }
 
+.result-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 42px;
+  padding: 3px;
+  border: 1px solid #cbd4e4;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.result-view-toggle button {
+  height: 34px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 12px;
+  color: #4c5875;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.result-view-toggle button.is-active {
+  color: #ffffff;
+  background: #06333c;
+}
+
 .filter-inline-field {
   display: inline-flex;
   align-items: center;
@@ -621,7 +649,7 @@ button {
 
 /* Kolom khusus Test Result dibuat mengikuti screenshot dengan email tetap rapi saat teks panjang. */
 .result-table {
-  min-width: 1080px;
+  min-width: 1280px;
 }
 
 .result-table th,
@@ -665,6 +693,12 @@ button {
   border-color: var(--red);
 }
 
+.status-pill.is-waiting {
+  color: #8a6200;
+  background: #fff3cf;
+  border-color: #d6b14f;
+}
+
 .answer-pill {
   width: 30px;
   height: 30px;
@@ -685,7 +719,7 @@ button {
 }
 
 .result-actions {
-  gap: 30px;
+  gap: 14px;
 }
 
 .icon-btn {
@@ -710,6 +744,14 @@ button {
 
 .icon-btn.email {
   color: #126fff;
+}
+
+.icon-btn.review {
+  color: #8a6200;
+}
+
+.icon-btn.score {
+  color: #0d7030;
 }
 
 .icon-btn.delete {
@@ -1103,7 +1145,6 @@ button {
 .editor-shell {
   min-height: 210px;
   display: grid;
-  grid-template-rows: 1fr 42px;
 }
 
 .editor-value {
@@ -1122,6 +1163,22 @@ button {
   line-height: 1.55;
 }
 
+.rtl-text {
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+
+.question-form-row.is-question .editor-shell {
+  max-height: 314px;
+  overflow: hidden;
+}
+
+.question-form-row.is-question .editor-textarea {
+  max-height: 210px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .editor-textarea:empty::before {
   content: attr(data-placeholder);
   color: #7d8796;
@@ -1129,11 +1186,53 @@ button {
 }
 
 .editor-toolbar {
+  min-height: 42px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 16px;
   color: #343a49;
+}
+
+.equation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  border-top: 1px solid #d8deea;
+  padding: 7px 10px;
+  color: #657184;
+  background: #ffffff;
+}
+
+.equation-toolbar strong {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  color: #7c8798;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.equation-tool {
+  flex: 0 0 auto;
+  min-width: 36px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #c6cbd4;
+  border-radius: 4px;
+  padding: 0 10px;
+  color: #080a30;
+  background: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.equation-tool:hover,
+.equation-tool:focus-visible {
+  border-color: #155b65;
+  background: #eef3f7;
+  outline: none;
 }
 
 .editor-tool {
@@ -1241,19 +1340,24 @@ button {
 .view-question-bank-card .view-course-body {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .view-question-list {
   display: grid;
   gap: 18px;
   margin-top: 4px;
+  min-width: 0;
 }
 
 .view-question-item {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 18px;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .view-question-item h2 {
@@ -1261,28 +1365,53 @@ button {
   color: var(--ink);
   font-size: 16px;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .view-question-item p {
+  max-width: 100%;
   margin: 0 0 14px;
   color: var(--ink);
   font-size: 15px;
   line-height: 1.6;
   font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .view-answer-list {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .view-answer-option {
   display: grid;
-  grid-template-columns: 18px 1fr;
+  grid-template-columns: 18px auto minmax(0, 1fr);
   align-items: start;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
   color: #343a49;
   font-size: 14px;
+}
+
+.view-answer-option:not(:has(.option-letter)) {
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.view-answer-option span {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.view-answer-option .option-letter {
+  min-width: 20px;
+  color: #657184;
+  font-weight: 700;
 }
 
 .view-answer-option input {
@@ -1295,11 +1424,19 @@ button {
   font-weight: 700;
 }
 
+.view-answer-option input:checked ~ span {
+  color: #0d7030;
+  font-weight: 700;
+}
+
 .view-question-pagination {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* View Test Result: card detail kandidat dan tombol export mengikuti referensi halaman view. */
@@ -1332,6 +1469,11 @@ button {
   border-radius: 10px 10px 0 0;
   background: #ffffff;
   overflow: hidden;
+}
+
+.recap-result-stack {
+  display: grid;
+  gap: 22px;
 }
 
 .test-question-head {
@@ -1367,6 +1509,25 @@ button {
 
 .test-question-card .view-question-item h2 {
   margin-bottom: 12px;
+}
+
+.question-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 5px;
+}
+
+.question-title .question-number {
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+
+.question-title > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .test-question-card .view-answer-list {
@@ -1407,6 +1568,108 @@ button {
   margin-left: 8px;
   color: var(--green);
   font-style: normal;
+}
+
+.essay-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0 9px;
+  color: #8a6200;
+  background: #fff3cf;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.essay-answer-review {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid #d8deea;
+  border-radius: 7px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.essay-answer-review span {
+  color: #7c8798;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.essay-answer-review p {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  color: #172033;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.essay-review-status {
+  margin-top: 12px;
+}
+
+.essay-review-footer {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 14px 18px;
+}
+
+.essay-review-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #1d1e27;
+  font-size: 14px;
+}
+
+.essay-review-view select {
+  width: 78px;
+  height: 42px;
+  border: 1px solid #1d1e27;
+  border-radius: 5px;
+  padding: 0 12px;
+  background: #ffffff;
+}
+
+.essay-review-pages {
+  margin: 0;
+  gap: 18px;
+}
+
+.essay-review-footer .primary-btn {
+  margin-left: auto;
+}
+
+.review-pdf-btn {
+  margin-left: auto;
+  min-height: 42px;
+}
+
+.score-weight-popup {
+  display: grid;
+  gap: 14px;
+  text-align: left;
+}
+
+.score-weight-popup h2,
+.score-weight-popup p {
+  text-align: center;
+}
+
+.score-weight-popup label {
+  display: grid;
+  gap: 7px;
+  color: #27344b;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Popup sukses setelah tombol Publish berhasil menyimpan data ke MySQL. */
@@ -1518,6 +1781,32 @@ button {
   font-weight: 600;
 }
 
+/* Popup finalisasi review dibuat simetris: ikon, teks, dan tombol berada di tengah panel. */
+.review-complete-popup {
+  width: min(100%, 500px);
+  padding: 50px 36px 42px;
+}
+
+.review-complete-popup .validation-popup-icon {
+  margin-bottom: 18px;
+}
+
+.review-complete-popup p {
+  max-width: 390px;
+  margin: 0 auto;
+}
+
+.review-complete-popup .confirm-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 40px;
+}
+
+.review-complete-popup .confirm-submit {
+  min-width: 238px;
+  min-height: 50px;
+}
+
 /* Halaman Create Question Bank mengikuti layout fill QB: metadata di atas, editor soal di bawah. */
 .question-bank-create-card {
   display: grid;
@@ -1579,6 +1868,37 @@ button {
   background: #07042c;
 }
 
+.question-type-toggle {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  padding: 6px;
+  background: #ffffff;
+}
+
+.question-type-toggle label {
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: #7c8798;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.question-type-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.question-type-toggle .is-active {
+  color: #ffffff;
+  background: #06333c;
+}
+
 .excel-upload-panel {
   display: grid;
   gap: 14px;
@@ -1586,6 +1906,50 @@ button {
   border-radius: 8px;
   padding: 16px;
   background: #f8fafc;
+}
+
+.bulk-upload-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-upload-title h2 {
+  margin: 0;
+}
+
+.bulk-guide-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #c6cbd4;
+  border-radius: 999px;
+  color: #06333c;
+  background: #ffffff;
+}
+
+.bulk-guide-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.import-guide-popup {
+  text-align: left;
+}
+
+.import-guide-popup h2 {
+  text-align: center;
+}
+
+.import-guide-popup ol {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding-left: 22px;
+  color: #27344b;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .excel-upload-actions {
@@ -1727,7 +2091,7 @@ button {
   font-weight: 700;
 }
 
-/* Pagination soal bisa diklik: nomor aktif gelap, tombol plus menambah soal sampai maksimal 50. */
+/* Pagination soal bisa diklik: nomor aktif gelap, tombol plus menambah soal tanpa batas jumlah. */
 .question-pager {
   display: flex;
   align-items: center;
@@ -1792,10 +2156,98 @@ button {
   min-height: 280px;
 }
 
+.question-form-row.is-question-type {
+  min-height: 112px;
+}
+
+.question-form-row.is-essay-note {
+  min-height: 132px;
+}
+
+.essay-note-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 17px 16px 0;
+  color: #27344b;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.essay-note-box svg {
+  width: 22px;
+  height: 22px;
+  color: #0d7030;
+}
+
 .answer-options {
   display: grid;
   gap: 30px;
   padding: 16px 17px 16px 0;
+}
+
+.question-image-upload {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.question-image-drop {
+  position: relative;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px dashed #9ba9bd;
+  border-radius: 6px;
+  padding: 0 16px;
+  color: #27344b;
+  background: #f8fafc;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.question-image-drop input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.question-image-drop-icon,
+.question-image-remove svg {
+  width: 18px;
+  height: 18px;
+}
+
+.question-image-upload p {
+  margin: 0;
+  color: #7c8798;
+  font-size: 12px;
+}
+
+.question-image-remove {
+  width: max-content;
+  min-height: 36px;
+  font-size: 13px;
+}
+
+.question-image-preview {
+  max-width: 420px;
+  margin: 0;
+  border: 1px solid #d8deea;
+  border-radius: 7px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.question-image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
 }
 
 .answer-option {
@@ -2139,8 +2591,13 @@ button {
   .result-toolbar,
   .result-filter,
   .filter-inline-group,
+  .result-view-toggle,
   .filter-inline-field {
     width: 100%;
+  }
+
+  .result-view-toggle button {
+    flex: 1;
   }
 
   .filter-inline-field select {

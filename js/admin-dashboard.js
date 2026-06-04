@@ -1,9 +1,14 @@
 (function () {
+  const adminDashboardVersion = "20260602-recap-gap";
+  window.AdminDashboardVersion = adminDashboardVersion;
+  console.info(`Admin dashboard script loaded: ${adminDashboardVersion}`);
+
   const authKey = "recruitment.admin.authenticated";
   const adminRegionKey = "recruitment.admin.region";
   const adminNameKey = "recruitment.admin.name";
+  const adminUsernameKey = "recruitment.admin.username";
 
-  if (window.sessionStorage.getItem(authKey) !== "1" || !window.sessionStorage.getItem(adminRegionKey)) {
+  if (window.sessionStorage.getItem(authKey) !== "1" || !window.sessionStorage.getItem(adminRegionKey) || !window.sessionStorage.getItem(adminUsernameKey)) {
     window.location.replace("admin_login.html");
     return;
   }
@@ -24,13 +29,25 @@
   const confirmSubmit = confirmLayer.querySelector(".confirm-submit");
   const adminRegion = window.sessionStorage.getItem(adminRegionKey);
   const adminName = window.sessionStorage.getItem(adminNameKey) || `Admin ${adminRegion}`;
+  const adminUsername = window.sessionStorage.getItem(adminUsernameKey) || "";
+  const adminInitials = adminName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
   let tokenTimerInterval = null;
 
   document.querySelectorAll(".profile-name").forEach((element) => {
     element.textContent = adminName;
   });
   document.querySelectorAll(".admin-pill").forEach((element) => {
+    // Debug: region pill berasal dari session login, sehingga sdm_jakarta tetap masuk scope Jakarta.
     element.textContent = "Admin";
+  });
+  document.querySelectorAll(".avatar").forEach((element) => {
+    element.textContent = adminInitials || "AD";
   });
 
   // State selalu diisi ulang dari MySQL lewat admin_api.php setiap render.
@@ -51,6 +68,15 @@
     key: "date",
     direction: "desc"
   };
+  let resultViewMode = "results";
+  let resultServerTotal = 0;
+  let resultServerFilterOptions = {
+    course: [],
+    education: []
+  };
+  let recapitulations = [];
+  let recapServerTotal = 0;
+  let activeRecapitulation = null;
 
   // Pagination tiap tabel disimpan terpisah agar Course, Question Bank, dan Results punya posisi sendiri.
   const pageSizeOptions = [5, 10, 15, 20, 50];
@@ -62,8 +88,9 @@
 
   // State sementara untuk halaman Fill Question Bank. Isinya berubah saat user klik pagination soal.
   let questionBankDraft = null;
-  const questionTemplatePath = "Image/template_questions_guru.xlsx";
-  const questionTemplateColumns = ["questionText", "optionA", "optionB", "optionC", "optionD", "correctOption"];
+  let essayReviewDraft = null;
+  const questionTemplatePath = "Image/template_bulk_upload_soal.xlsx";
+  const questionTemplateColumns = ["questionType", "questionText", "optionA", "optionB", "optionC", "optionD", "correctOption"];
 
   const sectionTitles = {
     course: "Course List",
@@ -88,11 +115,21 @@
     return Number(new URLSearchParams(window.location.search).get("id") || 0);
   }
 
+  function activeRecapId() {
+    return new URLSearchParams(window.location.search).get("recapId") || "";
+  }
+
   // Mengganti tab dashboard tanpa reload penuh, lalu render ulang data terbaru.
   async function navigate(section, action = "", id = 0) {
     const actionQuery = action ? `&action=${encodeURIComponent(action)}` : "";
     const idQuery = id ? `&id=${encodeURIComponent(id)}` : "";
     window.history.pushState({}, "", `admin_dashboard.html?section=${section}${actionQuery}${idQuery}`);
+    await render();
+  }
+
+  async function navigateRecapitulation(recapId) {
+    // Recap ID bukan angka, jadi disimpan di query recapId terpisah dari id result biasa.
+    window.history.pushState({}, "", `admin_dashboard.html?section=results&action=recap-view&recapId=${encodeURIComponent(recapId)}`);
     await render();
   }
 
@@ -109,9 +146,64 @@
   function richTextHtml(value) {
     // Rich text disimpan sebagai tag HTML sederhana dari toolbar editor.
     // Tetap escape seluruh teks dulu, lalu buka hanya tag formatting yang kita izinkan.
-    return escapeHtml(value)
-      .replace(/&lt;(\/?)(strong|em|u|s|ul|li)&gt;/g, "<$1$2>")
+    return escapeHtml(String(value || "").replace(/&(amp;)?nbsp;/gi, " "))
+      .replace(/&lt;(\/?)(strong|em|u|s|ul|li|br)&gt;/g, "<$1$2>")
+      .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
+      .replace(/\b([A-Za-z0-9]+)\^([A-Za-z0-9+-]+)\b/g, "$1<sup>$2</sup>")
       .replace(/\n/g, "<br>");
+  }
+
+  function hasArabicText(value) {
+    return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u.test(String(value || ""));
+  }
+
+  function rtlAttrs(value) {
+    return hasArabicText(value) ? ' dir="auto" class="rtl-text"' : "";
+  }
+
+  function answerLabelHtml(answer, value) {
+    return hasArabicText(value)
+      ? `<span class="option-letter" aria-hidden="true">${escapeHtml(answer)}.</span><span${rtlAttrs(value)}>${escapeHtml(value)}</span>`
+      : `<span>${escapeHtml(`${answer}. ${value || ""}`)}</span>`;
+  }
+
+  function questionTitleHtml(number, questionText, badgeHtml = "") {
+    return `
+      <h2 class="question-title">
+        <span class="question-number">${escapeHtml(number)}.</span>
+        <span${rtlAttrs(questionText)}>${richTextHtml(questionText)}${badgeHtml}</span>
+      </h2>
+    `;
+  }
+
+  const equationSymbols = [
+    ["x²", "x²"],
+    ["x^n", "x^n"],
+    ["√x", "√x"],
+    ["a/b", "a/b"],
+    ["lim", "lim"],
+    ["∫", "∫"],
+    ["d/dx", "d/dx"],
+    ["Σ", "Σ"],
+    ["π", "π"],
+    ["∞", "∞"],
+    ["≤", "≤"],
+    ["≥", "≥"],
+    ["≠", "≠"],
+    ["±", "±"],
+    ["θ", "θ"],
+    ["→", "→"]
+  ];
+
+  function equationToolbarHtml() {
+    return `
+      <div class="equation-toolbar" aria-label="Math equation toolbar">
+        <strong>MATH</strong>
+        ${equationSymbols.map(([label, value]) => `
+          <button class="equation-tool" type="button" data-action="insert-equation-symbol" data-symbol="${escapeHtml(value)}" aria-label="Insert ${escapeHtml(label)}">${escapeHtml(label)}</button>
+        `).join("")}
+      </div>
+    `;
   }
 
   function editorToolbarHtml() {
@@ -130,13 +222,18 @@
   function editorFieldHtml(name, value, placeholder) {
     return `
       <textarea class="editor-value" name="${escapeHtml(name)}">${escapeHtml(value || "")}</textarea>
-      <div class="editor-textarea" contenteditable="true" data-editor-input data-placeholder="${escapeHtml(placeholder)}">${richTextHtml(value || "")}</div>
+      <div class="editor-textarea" contenteditable="true" data-editor-input data-placeholder="${escapeHtml(placeholder)}"${rtlAttrs(value)}>${richTextHtml(value || "")}</div>
+      ${name === "questionText" ? equationToolbarHtml() : ""}
     `;
   }
 
   function sanitizeEditorHtml(html) {
     const template = document.createElement("template");
-    template.innerHTML = html || "";
+    template.innerHTML = String(html || "")
+      .replace(/<div[^>]*>/gi, "<br>")
+      .replace(/<\/div>/gi, "")
+      .replace(/<p[^>]*>/gi, "<br>")
+      .replace(/<\/p>/gi, "");
     const allowedTags = new Set(["STRONG", "EM", "U", "S", "UL", "LI", "BR"]);
     const aliases = {
       B: "STRONG",
@@ -170,7 +267,31 @@
     template.content.childNodes.forEach((node) => fragment.appendChild(cleanNode(node)));
     const wrapper = document.createElement("div");
     wrapper.appendChild(fragment);
-    return wrapper.innerHTML;
+    return wrapper.innerHTML
+      .replace(/^(<br\s*\/?>)+/gi, "")
+      .replace(/(<br\s*\/?>)+$/gi, "")
+      .replace(/&(amp;)?nbsp;/gi, " ");
+  }
+
+  function insertEditorLineBreak(editor) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) {
+      return;
+    }
+
+    range.deleteContents();
+    const lineBreak = document.createElement("br");
+    range.insertNode(lineBreak);
+    range.setStartAfter(lineBreak);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    syncEditorValue(editor);
   }
 
   function syncEditorValue(editor) {
@@ -179,6 +300,8 @@
     if (value) {
       value.value = sanitizeEditorHtml(editor.innerHTML);
     }
+    editor.dir = hasArabicText(editor.textContent) ? "auto" : "ltr";
+    editor.classList.toggle("rtl-text", editor.dir === "auto");
   }
 
   function syncAllEditors(root = document) {
@@ -207,6 +330,36 @@
       document.execCommand(commands[format], false);
       syncEditorValue(input);
     }
+  }
+
+  function insertEquationSymbol(trigger) {
+    const editor = trigger.closest(".editor-shell");
+    const input = editor?.querySelector("[data-editor-input]");
+    const symbol = trigger.dataset.symbol || "";
+    if (!input || !symbol) {
+      return;
+    }
+
+    // Debug: simbol equation disisipkan ke contenteditable aktif lalu langsung disinkronkan ke textarea tersembunyi.
+    input.focus();
+    document.execCommand("insertText", false, symbol);
+    syncEditorValue(input);
+  }
+
+  function isQuestionImageDataUrl(value) {
+    return /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(String(value || ""));
+  }
+
+  function questionImageHtml(question) {
+    if (!isQuestionImageDataUrl(question.imageData)) {
+      return "";
+    }
+
+    return `
+      <figure class="question-image-preview">
+        <img src="${escapeHtml(question.imageData)}" alt="${escapeHtml(question.imageName || "Question image")}">
+      </figure>
+    `;
   }
 
   // Memendekkan pertanyaan panjang supaya tabel tetap mudah dibaca.
@@ -291,27 +444,190 @@
     });
   }
 
+  // Debug UX: popup ini dipakai setelah review essay final agar admin diarahkan jelas ke tabel hasil.
+  function showReviewCompletePopup() {
+    const existingPopup = document.querySelector(".validation-popup-layer");
+    if (existingPopup) {
+      existingPopup.remove();
+    }
+
+    const popup = document.createElement("div");
+    popup.className = "validation-popup-layer";
+    popup.innerHTML = `
+      <div class="validation-popup review-complete-popup" role="dialog" aria-modal="true" aria-labelledby="reviewCompleteTitle">
+        <button class="validation-popup-close" type="button" data-review-complete-close aria-label="Close review complete popup">
+          <i data-lucide="x"></i>
+        </button>
+        <div class="validation-popup-icon"><i data-lucide="check"></i></div>
+        <h2 id="reviewCompleteTitle">Essay Review Completed</h2>
+        <p>Essay review has been finalized and saved to the database.</p>
+        <div class="confirm-actions">
+          <button class="confirm-submit" type="button" data-review-complete-results>Go to Test Result</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(popup);
+
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+
+    popup.addEventListener("click", async (event) => {
+      if (event.target === popup || event.target.closest("[data-review-complete-close]")) {
+        popup.remove();
+        return;
+      }
+
+      if (event.target.closest("[data-review-complete-results]")) {
+        popup.remove();
+        await navigate("results");
+      }
+    });
+  }
+
+  function showScoreWeightPopup(result) {
+    const hasMc = questionsForResult(result).some((question) => question.questionType !== "essay");
+    const hasEssay = resultHasEssay(result);
+    const defaultMcWeight = hasMc && hasEssay ? 50 : hasMc ? 100 : 0;
+    const defaultEssayWeight = hasMc && hasEssay ? 50 : hasEssay ? 100 : 0;
+    const defaultEssayScore = hasEssay ? essayScore(result) : 0;
+    const popup = document.createElement("div");
+    popup.className = "validation-popup-layer";
+    popup.innerHTML = `
+      <div class="validation-popup score-weight-popup" role="dialog" aria-modal="true">
+        <button class="validation-popup-close" type="button" data-score-close aria-label="Close score popup">
+          <i data-lucide="x"></i>
+        </button>
+        <h2>Give Score</h2>
+        <p>Multiple Choice: ${escapeHtml(multipleChoiceScore(result))} | Essay: ${escapeHtml(essayScore(result))}</p>
+        <label>
+          <span>Essay Final Score</span>
+          <input class="create-input" name="essayScore" type="number" min="0" max="100" step="1" value="${defaultEssayScore}"${hasEssay ? "" : " disabled"}>
+        </label>
+        <label>
+          <span>Multiple Choice Weight (%)</span>
+          <input class="create-input" name="multipleChoiceWeight" type="number" min="0" max="100" step="1" value="${defaultMcWeight}"${hasMc && hasEssay ? "" : " disabled"}>
+        </label>
+        <label>
+          <span>Essay Weight (%)</span>
+          <input class="create-input" name="essayWeight" type="number" min="0" max="100" step="1" value="${defaultEssayWeight}"${hasMc && hasEssay ? "" : " disabled"}>
+        </label>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" type="button" data-score-close>Cancel</button>
+          <button class="confirm-submit" type="button" data-score-submit>Save Score</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(popup);
+
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+
+    const syncWeights = (changedInput) => {
+      const mcInput = popup.querySelector('[name="multipleChoiceWeight"]');
+      const essayInput = popup.querySelector('[name="essayWeight"]');
+      const clamp = (value) => Math.round(Math.max(0, Math.min(100, Number(value) || 0)));
+
+      // Debug: bobot MC + Essay selalu dibuat 100% di UI agar tidak bisa lebih/kurang.
+      if (changedInput === mcInput && !essayInput.disabled) {
+        mcInput.value = clamp(mcInput.value);
+        essayInput.value = 100 - Number(mcInput.value);
+      } else if (changedInput === essayInput && !mcInput.disabled) {
+        essayInput.value = clamp(essayInput.value);
+        mcInput.value = 100 - Number(essayInput.value);
+      }
+    };
+
+    popup.addEventListener("input", (event) => {
+      if (event.target.matches('[name="multipleChoiceWeight"], [name="essayWeight"]')) {
+        syncWeights(event.target);
+      }
+    });
+
+    return new Promise((resolve) => {
+      popup.addEventListener("click", (event) => {
+        if (event.target === popup || event.target.closest("[data-score-close]")) {
+          popup.remove();
+          resolve(null);
+          return;
+        }
+
+        if (event.target.closest("[data-score-submit]")) {
+          const multipleChoiceWeight = Number(popup.querySelector('[name="multipleChoiceWeight"]').value || 0);
+          const essayWeight = Number(popup.querySelector('[name="essayWeight"]').value || 0);
+          const manualEssayScore = Number(popup.querySelector('[name="essayScore"]').value || 0);
+          popup.remove();
+          resolve({ multipleChoiceWeight, essayWeight, essayScore: manualEssayScore });
+        }
+      });
+    });
+  }
+
+  function showImportGuidePopup() {
+    const popup = document.createElement("div");
+    popup.className = "validation-popup-layer";
+    popup.innerHTML = `
+      <div class="validation-popup import-guide-popup" role="dialog" aria-modal="true" aria-labelledby="importGuideTitle">
+        <button class="validation-popup-close" type="button" data-import-guide-close aria-label="Close import guide">
+          <i data-lucide="x"></i>
+        </button>
+        <div class="validation-popup-icon"><i data-lucide="info"></i></div>
+        <h2 id="importGuideTitle">Template Guide</h2>
+        <ol>
+          <li>Sesuaikan tipe soal apakah multiple choice atau essay menggunakan dropdown menu yang muncul di kolom questionType.</li>
+          <li>Isi soal di kolom questionText.</li>
+          <li>Jika multiple choice isi option A-D dan correctOption.</li>
+          <li>Jika Essay abaikan option A-D dan correctOption.</li>
+          <li>Untuk saat ini abaikan imageData dan imageName.</li>
+        </ol>
+      </div>
+    `;
+    document.body.appendChild(popup);
+
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+
+    popup.addEventListener("click", (event) => {
+      if (event.target === popup || event.target.closest("[data-import-guide-close]")) {
+        popup.remove();
+      }
+    });
+  }
+
   function normalizeTemplateCell(value) {
     return String(value ?? "").trim();
   }
 
+  function normalizeQuestionType(value) {
+    return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_") === "essay" ? "essay" : "multiple_choice";
+  }
+
   function createImportPreviewRow(row, index) {
+    const questionType = normalizeQuestionType(row.questionType);
     const question = {
+      questionType,
       questionText: normalizeTemplateCell(row.questionText),
       optionA: normalizeTemplateCell(row.optionA),
       optionB: normalizeTemplateCell(row.optionB),
       optionC: normalizeTemplateCell(row.optionC),
       optionD: normalizeTemplateCell(row.optionD),
-      correctOption: normalizeTemplateCell(row.correctOption).toUpperCase()
+      correctOption: normalizeTemplateCell(row.correctOption).toUpperCase(),
+      imageData: "",
+      imageName: ""
     };
     const errors = [];
 
     if (!question.questionText) errors.push("questionText wajib diisi");
-    if (!question.optionA) errors.push("optionA wajib diisi");
-    if (!question.optionB) errors.push("optionB wajib diisi");
-    if (!question.optionC) errors.push("optionC wajib diisi");
-    if (!question.optionD) errors.push("optionD wajib diisi");
-    if (!["A", "B", "C", "D"].includes(question.correctOption)) errors.push("correctOption harus A/B/C/D");
+    if (question.questionType === "multiple_choice") {
+      if (!question.optionA) errors.push("optionA wajib diisi");
+      if (!question.optionB) errors.push("optionB wajib diisi");
+      if (!question.optionC) errors.push("optionC wajib diisi");
+      if (!question.optionD) errors.push("optionD wajib diisi");
+      if (!["A", "B", "C", "D"].includes(question.correctOption)) errors.push("correctOption harus A/B/C/D");
+    }
 
     return {
       index: index + 1,
@@ -339,7 +655,7 @@
   }
 
   function hasQuestionContent(question) {
-    return ["questionText", "optionA", "optionB", "optionC", "optionD", "correctOption"]
+    return ["questionText", "optionA", "optionB", "optionC", "optionD", "correctOption", "imageData"]
       .some((key) => normalizeTemplateCell(question[key]) !== "");
   }
 
@@ -452,8 +768,124 @@
     return `<span class="status-pill${Number(isPublished) === 1 ? "" : " is-draft"}">${Number(isPublished) === 1 ? "Published" : "Inactive"}</span>`;
   }
 
-  // Request utama dashboard untuk mengambil data courses/questions/applications.
-  async function loadState() {
+  async function loadQuestionBankDetail(questionBankId) {
+    // Detail questions_json hanya dimuat saat View/Edit agar list Question Bank tidak berat.
+    const detail = await window.RecruitmentStore.getQuestionBank(questionBankId);
+    if (!detail) {
+      return;
+    }
+
+    const index = state.questionBanks.findIndex((bank) => Number(bank.id) === Number(detail.id));
+    if (index >= 0) {
+      state.questionBanks[index] = { ...state.questionBanks[index], ...detail };
+    } else {
+      state.questionBanks.push(detail);
+    }
+  }
+
+  async function loadResultDetail(resultId) {
+    // Detail resultQuestions/answers baru diambil saat View/Review/Give Score/PDF.
+    const detail = await window.RecruitmentStore.getResult(resultId);
+    if (!detail) {
+      return;
+    }
+
+    const index = state.applications.findIndex((application) => Number(application.id) === Number(detail.id));
+    if (index >= 0) {
+      state.applications[index] = { ...state.applications[index], ...detail };
+    } else {
+      state.applications.push(detail);
+    }
+  }
+
+  async function loadRecapitulationDetail(recapId) {
+    // Halaman View recap mengambil semua test result peserta dalam satu request khusus.
+    activeRecapitulation = await window.RecruitmentStore.getRecapitulation(recapId);
+    if (activeRecapitulation?.results?.length) {
+      activeRecapitulation.results.forEach((detail) => {
+        const index = state.applications.findIndex((application) => Number(application.id) === Number(detail.id));
+        if (index >= 0) {
+          state.applications[index] = { ...state.applications[index], ...detail };
+        } else {
+          state.applications.push(detail);
+        }
+      });
+    }
+  }
+
+  async function loadStateForRoute(section = activeSection(), action = activeAction(), recordId = activeId()) {
+    // Setiap menu memuat data sekecil mungkin supaya pindah tab production tidak menarik payload besar.
+    if (section === "course") {
+      state.courses = await window.RecruitmentStore.getCourses();
+      return;
+    }
+
+    if (section === "questions") {
+      const [courses, questionBanks] = await Promise.all([
+        window.RecruitmentStore.getCourses(),
+        window.RecruitmentStore.getQuestionBanks()
+      ]);
+      state.courses = courses;
+      state.questionBanks = questionBanks;
+      if ((action === "view" || action === "edit") && recordId) {
+        await loadQuestionBankDetail(recordId);
+      }
+      return;
+    }
+
+    if (section === "results") {
+      activeRecapitulation = null;
+      if (action === "recap-view") {
+        // Saat detail recap dibuka langsung/refresh, mode tabel tetap dikunci ke Recapitulation.
+        resultViewMode = "recap";
+      }
+      const resultPage = tablePagination.results;
+      const listRequest = resultViewMode === "recap"
+        ? window.RecruitmentStore.getRecapitulations({
+          page: resultPage.page,
+          pageSize: resultPage.pageSize,
+          course: resultFilters.course,
+          education: resultFilters.education,
+          sortKey: resultSort.key,
+          sortDirection: resultSort.direction
+        })
+        : window.RecruitmentStore.getResults({
+          page: resultPage.page,
+          pageSize: resultPage.pageSize,
+          course: resultFilters.course,
+          education: resultFilters.education,
+          sortKey: resultSort.key,
+          sortDirection: resultSort.direction
+        });
+      const [questionBanks, listPayload] = await Promise.all([
+        window.RecruitmentStore.getQuestionBanks(),
+        listRequest
+      ]);
+      state.questionBanks = questionBanks;
+      if (resultViewMode === "recap") {
+        recapitulations = listPayload.recapitulations;
+        recapServerTotal = listPayload.total;
+      } else {
+        state.applications = listPayload.applications;
+        resultServerTotal = listPayload.total;
+      }
+      resultServerFilterOptions = listPayload.filterOptions || { course: [], education: [] };
+      tablePagination.results.page = listPayload.page || resultPage.page;
+      tablePagination.results.pageSize = listPayload.pageSize || resultPage.pageSize;
+      if (action === "recap-view" && activeRecapId()) {
+        await loadRecapitulationDetail(activeRecapId());
+      }
+      if ((action === "view" || action === "review") && recordId) {
+        await loadResultDetail(recordId);
+      }
+      return;
+    }
+
+    if (section === "token") {
+      state.activeToken = await window.RecruitmentStore.getActiveToken();
+      return;
+    }
+
     state = await window.RecruitmentStore.getState();
   }
 
@@ -481,7 +913,9 @@
   function coursesWithTotals() {
     return state.courses.map((course) => ({
       ...course,
-      totalQuestions: state.questionBanks
+      totalQuestions: Number.isFinite(Number(course.totalQuestions))
+        ? Number(course.totalQuestions)
+        : state.questionBanks
         .filter((bank) => Number(bank.courseId) === Number(course.id))
         .reduce((total, bank) => total + (Array.isArray(bank.questions) ? bank.questions.length : 0), 0)
     }));
@@ -507,6 +941,16 @@
     const sorted = [...state.applications].sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     const index = Math.max(0, sorted.findIndex((item) => Number(item.id) === Number(result.id)));
     return [100, 75, 50][index % 3];
+  }
+
+  function scoreCellValue(value, fallback = 0) {
+    const score = Number(value);
+    return Number.isNaN(score) ? fallback : score;
+  }
+
+  function finalScoreLabel(result) {
+    // Debug: Final Score berasal dari kolom score; setelah Give Score nilainya adalah hasil pembobotan MC + Essay.
+    return scoreCellValue(resultScore(result));
   }
 
   function numericResultScore(result) {
@@ -537,12 +981,70 @@
   }
 
   function hasPassedResult(result) {
+    if (result.essayReviewStatus === "waiting" && !resultScoreFinalized(result)) {
+      return false;
+    }
+
     return numericResultScore(result) >= passingScoreForResult(result);
   }
 
   function resultStatusHtml(result) {
+    if (result.essayReviewStatus === "waiting" && !resultScoreFinalized(result)) {
+      return '<span class="status-pill is-waiting">Waiting for Review</span>';
+    }
+
     const passed = hasPassedResult(result);
     return `<span class="status-pill${passed ? "" : " is-draft"}">${passed ? "Passed" : "Not Passed"}</span>`;
+  }
+
+  function resultHasEssay(result) {
+    if (!result) {
+      return false;
+    }
+
+    return result.hasEssay || (Array.isArray(result.resultQuestions) && result.resultQuestions.some((question) => question.questionType === "essay"));
+  }
+
+  function resultScoreFinalized(result) {
+    if (!result) {
+      return false;
+    }
+
+    // Debug: marker finalisasi score disimpan di questions_json agar tidak perlu migrasi tabel.
+    return result.weightedScoreFinalized === true || questionsForResult(result).some((question) => question.weightedScoreFinalized === true);
+  }
+
+  function multipleChoiceScore(result) {
+    if (result.multipleChoiceScore !== undefined && result.multipleChoiceScore !== null && result.multipleChoiceScore !== "") {
+      return Number(result.multipleChoiceScore) || 0;
+    }
+
+    const questions = questionsForResult(result).filter((question) => question.questionType !== "essay");
+    if (!questions.length) {
+      return 0;
+    }
+
+    const correct = questions.filter((question) => question.isCorrect === true || question.candidateAnswer === question.correctOption).length;
+    return Math.round((correct / questions.length) * 100);
+  }
+
+  function essayScore(result) {
+    const manualEssayScore = questionsForResult(result).find((question) => question.manualEssayScore !== undefined)?.manualEssayScore;
+    if (manualEssayScore !== undefined && manualEssayScore !== null && manualEssayScore !== "") {
+      return Number(manualEssayScore) || 0;
+    }
+
+    if (result.essayScore !== undefined && result.essayScore !== null && result.essayScore !== "") {
+      return Number(result.essayScore) || 0;
+    }
+
+    const essays = questionsForResult(result).filter((question) => question.questionType === "essay");
+    if (!essays.length) {
+      return 0;
+    }
+
+    const correct = essays.filter((question) => question.isCorrect === true).length;
+    return Math.round((correct / essays.length) * 100);
   }
 
   function sortedResultApplications(applications) {
@@ -638,11 +1140,12 @@
 
   // Mengambil daftar unik dari data Test Result untuk isi dropdown filter.
   function uniqueResultOptions(key, defaults = []) {
+    const serverOptions = Array.isArray(resultServerFilterOptions[key]) ? resultServerFilterOptions[key] : [];
     const values = state.applications
       .map((application) => String(application[key] || "").trim())
       .filter(Boolean);
 
-    return [...new Set([...defaults, ...values])].sort((a, b) => a.localeCompare(b));
+    return [...new Set([...defaults, ...serverOptions, ...values])].sort((a, b) => a.localeCompare(b));
   }
 
   function resultFilterOptions(key, placeholder, selectedValue, defaults = []) {
@@ -652,6 +1155,16 @@
         `<option value="${escapeHtml(value)}"${value === selectedValue ? " selected" : ""}>${escapeHtml(value)}</option>`
       ))
     ].join("");
+  }
+
+  function resultViewToggleHtml() {
+    // Toggle ini hanya mengganti data yang diminta ke server; tidak mengubah data test_results.
+    return `
+      <div class="result-view-toggle" aria-label="Result table mode">
+        <button class="${resultViewMode === "results" ? "is-active" : ""}" type="button" data-action="set-result-view" data-view-mode="results">Test Result</button>
+        <button class="${resultViewMode === "recap" ? "is-active" : ""}" type="button" data-action="set-result-view" data-view-mode="recap">Recapitulation</button>
+      </div>
+    `;
   }
 
   // Tabel hanya menampilkan row yang cocok dengan filter aktif.
@@ -668,6 +1181,7 @@
     return `
       <div class="result-filter" id="resultFilter" aria-label="Filter test results">
         <div class="filter-inline-group">
+          ${resultViewToggleHtml()}
           <label class="filter-inline-field">
             <span class="sr-only">Course</span>
             <select name="course">
@@ -1061,7 +1575,7 @@
       subject: bank.courseName,
       isPublished: bank.isPublished,
       passingScore: bank.passingScore || "75",
-      questionCount: (bank.questions || []).length
+      questionCount: Number.isFinite(Number(bank.questionCount)) ? Number(bank.questionCount) : (bank.questions || []).length
     }));
     const { rows: questionBankRows } = tablePageSlice("questions", allQuestionBankRows);
 
@@ -1121,10 +1635,19 @@
 
   // Membuat HTML tabel hasil submit pelamar dari state.applications.
   function renderResults() {
-    const allApplications = sortedResultApplications(filteredResultApplications());
-    const { rows: applications } = tablePageSlice("results", allApplications);
+    if (resultViewMode === "recap") {
+      return renderRecapitulations();
+    }
+
+    // Results memakai server-side pagination; state.applications hanya berisi halaman aktif.
+    const totalApplications = resultServerTotal || state.applications.length;
+    const applications = state.applications;
     const rows = applications.map((result) => {
-      const passed = hasPassedResult(result);
+      const hasEssay = resultHasEssay(result);
+      const reviewDisabled = !hasEssay;
+      const scoreDisabled = !hasEssay;
+      const reviewTooltip = !hasEssay ? "No Essay" : "Review Essay";
+      const scoreTooltip = !hasEssay ? "No Essay" : resultScoreFinalized(result) ? "Update Score" : "Give Score";
 
       return `
         <tr>
@@ -1133,16 +1656,18 @@
           <td>${escapeHtml(result.phone)}</td>
           <td>${escapeHtml(result.education || "-")}</td>
           <td>${escapeHtml(result.course)}</td>
-          <td>${escapeHtml(resultScore(result))}</td>
-          <td>${resultStatusHtml(result)}</td>
+          <td>${escapeHtml(finalScoreLabel(result))}</td>
+          <td>${escapeHtml(multipleChoiceScore(result))}</td>
+          <td>${escapeHtml(resultHasEssay(result) ? essayScore(result) : "-")}</td>
           <td>
             <span class="result-date-cell">${resultDateLabel(result.submittedAt)}</span>
             <small>${resultTimeLabel(result.submittedAt)}</small>
           </td>
           <td>
             <div class="action-group result-actions">
+              <button class="icon-btn review" type="button" data-action="review-essay-result" data-id="${result.id}" data-tooltip="${reviewTooltip}" aria-label="Review essay"${reviewDisabled ? " disabled" : ""}><i data-lucide="clipboard-check"></i></button>
+              <button class="icon-btn score" type="button" data-action="give-essay-score" data-id="${result.id}" data-tooltip="${scoreTooltip}" aria-label="Give essay score"${scoreDisabled ? " disabled" : ""}><i data-lucide="badge-check"></i></button>
               <button class="icon-btn view" type="button" data-action="view-test-result" data-id="${result.id}" data-tooltip="View" aria-label="View test result"><i data-lucide="eye"></i></button>
-              <button class="icon-btn email" type="button" data-action="send-result-email" data-id="${result.id}" data-tooltip="${passed ? "Email" : "Only Passed"}" aria-label="Email candidate"${passed ? "" : " disabled"}><i data-lucide="mail"></i></button>
               <button class="icon-btn delete" type="button" data-action="delete-application" data-id="${result.id}" data-tooltip="Delete" aria-label="Delete test result"><i data-lucide="trash-2"></i></button>
             </div>
           </td>
@@ -1155,7 +1680,85 @@
         <div class="table-head">
           <div class="table-title">
             <h1>Test Result Table</h1>
-            <span class="count-badge">${allApplications.length} test results</span>
+            <span class="count-badge">${totalApplications} test results</span>
+          </div>
+          <div class="toolbar result-toolbar">
+            ${resultFilterMenuHtml()}
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table result-table">
+            <thead>
+              <tr>
+                <th style="width: 20%;">
+                  <button class="sort-header${resultSort.key === "name" ? " is-active" : ""}" type="button" data-action="sort-results" data-sort-key="name">
+                    <span>Name</span>
+                    <i class="sort-icon" data-lucide="${resultSortIcon("name")}"></i>
+                  </button>
+                </th>
+                <th>Email</th>
+                <th>Phone Number</th>
+                <th>Position</th>
+                <th>Course</th>
+                <th>
+                  <button class="sort-header${resultSort.key === "score" ? " is-active" : ""}" type="button" data-action="sort-results" data-sort-key="score">
+                    <span>Final Score</span>
+                    <i class="sort-icon" data-lucide="${resultSortIcon("score")}"></i>
+                  </button>
+                </th>
+                <th>Multiple Choice Score</th>
+                <th>Essay Score</th>
+                <th>Date</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${totalApplications ? "" : '<div class="empty-state">No application results found for the selected filter.</div>'}
+        ${tableFooterHtml("results", totalApplications)}
+      </section>
+    `;
+  }
+
+  function recapStatusHtml(status) {
+    if (status === "Waiting for Review") {
+      return '<span class="status-pill is-waiting">Waiting for Review</span>';
+    }
+
+    return `<span class="status-pill${status === "Passed" ? "" : " is-draft"}">${escapeHtml(status || "Not Passed")}</span>`;
+  }
+
+  function renderRecapitulations() {
+    const totalRecaps = recapServerTotal || recapitulations.length;
+    const rows = recapitulations.map((recap) => {
+      const passed = recap.status === "Passed";
+
+      return `
+        <tr>
+          <td>${escapeHtml(recap.fullName)}</td>
+          <td class="result-email-cell">${escapeHtml(recap.email)}</td>
+          <td>${escapeHtml(recap.phone)}</td>
+          <td>${escapeHtml(recap.education || "-")}</td>
+          <td>${escapeHtml(recap.course || "-")}</td>
+          <td>${escapeHtml(recap.score)}</td>
+          <td>${recapStatusHtml(recap.status)}</td>
+          <td>
+            <div class="action-group result-actions">
+              <button class="icon-btn view" type="button" data-action="view-recapitulation" data-recap-id="${escapeHtml(recap.id)}" data-tooltip="View" aria-label="View recapitulation detail"><i data-lucide="eye"></i></button>
+              <button class="icon-btn email" type="button" data-action="send-recap-email" data-id="${escapeHtml(recap.id)}" data-email="${escapeHtml(recap.email)}" data-tooltip="${passed ? "Email" : "Only Passed"}" aria-label="Email candidate"${passed ? "" : " disabled"}><i data-lucide="mail"></i></button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    return `
+      <section class="table-card result-table-card">
+        <div class="table-head">
+          <div class="table-title">
+            <h1>Test Recapitulation Table</h1>
+            <span class="count-badge">${totalRecaps} participants</span>
           </div>
           <div class="toolbar result-toolbar">
             ${resultFilterMenuHtml()}
@@ -1182,15 +1785,14 @@
                   </button>
                 </th>
                 <th>Status</th>
-                <th>Date</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
-        ${allApplications.length ? "" : '<div class="empty-state">No application results found for the selected filter.</div>'}
-        ${tableFooterHtml("results", allApplications.length)}
+        ${totalRecaps ? "" : '<div class="empty-state">No recapitulation data found for the selected filter.</div>'}
+        ${tableFooterHtml("results", totalRecaps)}
       </section>
     `;
   }
@@ -1294,8 +1896,16 @@
             <strong>${escapeHtml(result.course)}</strong>
           </div>
           <div class="view-field">
-            <span>Score</span>
-            <strong>${escapeHtml(resultScore(result))}</strong>
+            <span>Final Score</span>
+            <strong>${escapeHtml(finalScoreLabel(result))}</strong>
+          </div>
+          <div class="view-field">
+            <span>Multiple Choice Score</span>
+            <strong>${escapeHtml(multipleChoiceScore(result))}</strong>
+          </div>
+          <div class="view-field">
+            <span>Essay Score</span>
+            <strong>${escapeHtml(resultHasEssay(result) ? essayScore(result) : "-")}</strong>
           </div>
           
           <div class="view-field">
@@ -1316,6 +1926,189 @@
     `;
   }
 
+  function renderViewRecapitulationPage() {
+    const recap = activeRecapitulation;
+
+    if (!recap) {
+      return `
+        <section class="view-course-card">
+          <div class="view-course-head">
+            <button class="back-link" type="button" data-action="back-results" aria-label="Back to recapitulation list">
+              <i data-lucide="arrow-left"></i>
+            </button>
+            <h1>View Test Recapitulation</h1>
+          </div>
+          <div class="empty-state">Recapitulation detail was not found.</div>
+        </section>
+      `;
+    }
+
+    const resultSections = (recap.results || []).map((result, resultIndex) => {
+      const questions = questionsForResult(result);
+
+      return `
+        <section class="test-question-card">
+          <div class="test-question-head">
+            <h2>Test Result ${resultIndex + 1} - ${escapeHtml(result.course || "-")}</h2>
+          </div>
+          <div class="view-course-body test-result-detail">
+            <div class="view-field">
+              <span>Final Score</span>
+              <strong>${escapeHtml(finalScoreLabel(result))}</strong>
+            </div>
+            <div class="view-field">
+              <span>Passing Grade</span>
+              <strong>${escapeHtml(result.passingScore ?? "-")}</strong>
+            </div>
+            <div class="view-field">
+              <span>Multiple Choice Score</span>
+              <strong>${escapeHtml(multipleChoiceScore(result))}</strong>
+            </div>
+            <div class="view-field">
+              <span>Essay Score</span>
+              <strong>${escapeHtml(resultHasEssay(result) ? essayScore(result) : "-")}</strong>
+            </div>
+            <div class="view-field">
+              <span>Position</span>
+              <strong>${escapeHtml(result.education || "-")}</strong>
+            </div>
+            <div class="view-field">
+              <span>Date</span>
+              <strong>${resultDateLabel(result.submittedAt)}; ${resultTimeLabel(result.submittedAt)}</strong>
+            </div>
+          </div>
+          <div class="test-question-list">
+            ${questions.length ? questions.map((question, index) => resultQuestionHtml(question, index + 1)).join("") : '<div class="empty-state">No question detail found for this result.</div>'}
+          </div>
+        </section>
+      `;
+    }).join("");
+
+    return `
+      <section class="view-course-card view-test-result-card">
+        <div class="view-course-head">
+          <button class="back-link" type="button" data-action="back-results" aria-label="Back to recapitulation list">
+            <i data-lucide="arrow-left"></i>
+          </button>
+          <h1>View Test Recapitulation</h1>
+        </div>
+
+        <div class="view-course-body test-result-detail">
+          <div class="view-field">
+            <span>Name</span>
+            <strong>${escapeHtml(recap.fullName)}</strong>
+          </div>
+          <div class="view-field">
+            <span>Email</span>
+            <strong>${escapeHtml(recap.email)}</strong>
+          </div>
+          <div class="view-field">
+            <span>Phone Number</span>
+            <strong>${escapeHtml(recap.phone)}</strong>
+          </div>
+          <div class="view-field">
+            <span>Position</span>
+            <strong>${escapeHtml(recap.education || "-")}</strong>
+          </div>
+          <div class="view-field">
+            <span>Course</span>
+            <strong>${escapeHtml(recap.course || "-")}</strong>
+          </div>
+          <div class="view-field">
+            <span>Average Score</span>
+            <strong>${escapeHtml(recap.score)}</strong>
+          </div>
+          <div class="view-field">
+            <span>Average Passing Grade</span>
+            <strong>${escapeHtml(recap.passingScore)}</strong>
+          </div>
+          <div class="view-field">
+            <span>Status</span>
+            <strong>${recapStatusHtml(recap.status)}</strong>
+          </div>
+          <div class="view-field">
+            <span>Total Test</span>
+            <strong>${escapeHtml(recap.testCount)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <div class="recap-result-stack">
+        ${resultSections || '<section class="test-question-card"><div class="empty-state">No test result detail found.</div></section>'}
+      </div>
+    `;
+  }
+
+  function renderReviewEssayPage(resultId) {
+    const result = findApplicationResult(resultId);
+    if (!result) {
+      return '<section class="view-course-card"><div class="empty-state">Test result was not found.</div></section>';
+    }
+
+    const essayQuestions = questionsForResult(result).filter((question) => question.questionType === "essay");
+    if (!essayReviewDraft || Number(essayReviewDraft.resultId) !== Number(resultId)) {
+      essayReviewDraft = {
+        resultId,
+        page: 1,
+        pageSize: 5,
+        reviews: essayQuestions.map((question) => question.isCorrect === true)
+      };
+    }
+
+    const pageSize = essayReviewDraft.pageSize || 5;
+    const totalPages = Math.max(1, Math.ceil(essayQuestions.length / pageSize));
+    essayReviewDraft.page = Math.min(Math.max(1, essayReviewDraft.page || 1), totalPages);
+    const startIndex = (essayReviewDraft.page - 1) * pageSize;
+    const visibleQuestions = essayQuestions.slice(startIndex, startIndex + pageSize);
+    return `
+      <section class="test-question-card">
+        <div class="test-question-head">
+          <button class="back-link" type="button" data-action="back-results" aria-label="Back to test result list">
+            <i data-lucide="arrow-left"></i>
+          </button>
+          <h2>Review Essay - ${escapeHtml(result.fullName)}</h2>
+          <button class="secondary-btn review-pdf-btn" type="button" data-action="download-review-essay-pdf" data-id="${result.id}">
+            <i data-lucide="download"></i>
+            <span>Download as PDF</span>
+          </button>
+        </div>
+        <div class="test-question-list">
+          ${essayQuestions.length ? visibleQuestions.map((question, index) => {
+            const reviewIndex = startIndex + index;
+            return essayReviewHtml(question, reviewIndex + 1, {
+              reviewIndex,
+              reviewValue: essayReviewDraft.reviews[reviewIndex] === true,
+              editable: true
+            });
+          }).join("") : '<div class="empty-state">No essay answers found.</div>'}
+          ${essayQuestions.length ? essayReviewPaginationHtml(totalPages, essayReviewDraft.page, essayReviewDraft.pageSize) : ""}
+        </div>
+      </section>
+    `;
+  }
+
+  function essayReviewPaginationHtml(totalPages, activePage, pageSize) {
+    return `
+      <div class="essay-review-footer">
+        <label class="essay-review-view">
+          <span>View page:</span>
+          <select data-action="essay-review-page-size">
+            ${[5, 10, 25, 50].map((size) => `<option value="${size}"${Number(pageSize) === size ? " selected" : ""}>${size}</option>`).join("")}
+          </select>
+        </label>
+        <button class="pager-btn" type="button" data-action="essay-review-prev"${activePage <= 1 ? " disabled" : ""} aria-label="Previous page"><i data-lucide="chevron-left"></i></button>
+        <div class="view-question-pagination essay-review-pages">
+          ${Array.from({ length: totalPages }, (_, index) => `
+            <button class="question-page-btn${activePage === index + 1 ? " is-active" : ""}" type="button" data-action="essay-review-page" data-page="${index + 1}">
+              ${index + 1}
+            </button>
+          `).join("")}
+        </div>
+        <button class="pager-btn" type="button" data-action="essay-review-next"${activePage >= totalPages ? " disabled" : ""} aria-label="Next page"><i data-lucide="chevron-right"></i></button>
+      </div>
+    `;
+  }
+
   // Render utama: ambil data dari API, tentukan section aktif, lalu tampilkan tabel yang sesuai.
   async function render() {
     const section = activeSection();
@@ -1325,7 +2118,7 @@
     app.innerHTML = '<div class="empty-state">Loading data from database...</div>';
 
     try {
-      await loadState();
+      await loadStateForRoute(section, action, recordId);
     } catch (error) {
       app.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "Unable to load dashboard data.")}</div>`;
       return;
@@ -1420,6 +2213,16 @@
   }
 </div>
         `
+      : section === "results" && action === "recap-view"
+        ? `
+          <div class="breadcrumb">
+            <span>Test Results</span>
+            <i data-lucide="chevron-right"></i>
+            <span>Recapitulation</span>
+            <i data-lucide="chevron-right"></i>
+            <span style="color:black">View Test Recapitulation</span>
+          </div>
+        `
       : section === "results" && action === "view"
         ? `
           <div class="breadcrumb">
@@ -1464,8 +2267,10 @@
       ${section === "questions" && action === "edit" ? renderEditQuestionBankPage(recordId) : ""}
       ${section === "questions" && action === "view" ? renderViewQuestionBankPage(recordId) : ""}
       ${section === "questions" && action !== "create" && action !== "edit" && action !== "view" ? renderQuestions() : ""}
+      ${section === "results" && action === "recap-view" ? renderViewRecapitulationPage() : ""}
       ${section === "results" && action === "view" ? renderViewTestResultPage(recordId) : ""}
-      ${section === "results" && action !== "view" ? renderResults() : ""}
+      ${section === "results" && action === "review" ? renderReviewEssayPage(recordId) : ""}
+      ${section === "results" && action !== "recap-view" && action !== "view" && action !== "review" ? renderResults() : ""}
       ${section === "token" ? renderExamToken() : ""}
     `;
 
@@ -1609,12 +2414,15 @@
   // Draft default berisi satu soal. User bisa menambah soal lewat tombol (+) pagination.
   function createEmptyQuestionDraft() {
     return {
+      questionType: "multiple_choice",
       questionText: "",
       optionA: "",
       optionB: "",
       optionC: "",
       optionD: "",
-      correctOption: ""
+      correctOption: "",
+      imageData: "",
+      imageName: ""
     };
   }
 
@@ -1641,12 +2449,15 @@
   function loadQuestionBankDraft(bank) {
     const questions = Array.isArray(bank.questions) && bank.questions.length
       ? bank.questions.map((question) => ({
+        questionType: question.questionType === "essay" ? "essay" : "multiple_choice",
         questionText: question.questionText || "",
         optionA: question.optionA || "",
         optionB: question.optionB || "",
         optionC: question.optionC || "",
         optionD: question.optionD || "",
-        correctOption: question.correctOption || ""
+        correctOption: question.correctOption || "",
+        imageData: question.imageData || "",
+        imageName: question.imageName || ""
       }))
       : [createEmptyQuestionDraft()];
 
@@ -1679,11 +2490,49 @@
     questionBankDraft.passingScore = form.elements.passingScore.value;
     questionBankDraft.isRandomized = form.elements.isRandomized ? Number(form.elements.isRandomized.value) : 1;
     activeQuestion.questionText = form.elements.questionText.value;
-    activeQuestion.optionA = form.elements.optionA.value;
-    activeQuestion.optionB = form.elements.optionB.value;
-    activeQuestion.optionC = form.elements.optionC.value;
-    activeQuestion.optionD = form.elements.optionD.value;
-    activeQuestion.correctOption = form.elements.correctOption.value;
+    activeQuestion.questionType = form.elements.questionType ? form.elements.questionType.value : "multiple_choice";
+    activeQuestion.optionA = form.elements.optionA ? form.elements.optionA.value : activeQuestion.optionA;
+    activeQuestion.optionB = form.elements.optionB ? form.elements.optionB.value : activeQuestion.optionB;
+    activeQuestion.optionC = form.elements.optionC ? form.elements.optionC.value : activeQuestion.optionC;
+    activeQuestion.optionD = form.elements.optionD ? form.elements.optionD.value : activeQuestion.optionD;
+    activeQuestion.correctOption = form.elements.correctOption ? form.elements.correctOption.value : activeQuestion.correctOption;
+  }
+
+  function questionImageUploadHtml(question) {
+    const hasImage = isQuestionImageDataUrl(question.imageData);
+    return `
+      <div class="question-image-upload">
+        <label class="question-image-drop">
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-question-image-input>
+          <span class="question-image-drop-icon"><i data-lucide="image-plus"></i></span>
+          <span>${hasImage ? "Change image" : "Attach image"}</span>
+        </label>
+        ${hasImage ? `
+          <button class="secondary-btn question-image-remove" type="button" data-action="remove-question-image">
+            <i data-lucide="trash-2"></i>
+            <span>Remove image</span>
+          </button>
+        ` : ""}
+        <p>PNG, JPG, GIF, or WEBP. Max 2 MB per question.</p>
+        ${questionImageHtml(question)}
+      </div>
+    `;
+  }
+
+  function questionTypeControlHtml(question) {
+    const type = question.questionType === "essay" ? "essay" : "multiple_choice";
+    return `
+      <div class="question-type-toggle">
+        <label class="${type === "multiple_choice" ? "is-active" : ""}">
+          <input type="radio" name="questionType" value="multiple_choice"${type === "multiple_choice" ? " checked" : ""}>
+          <span>Multiple Choice</span>
+        </label>
+        <label class="${type === "essay" ? "is-active" : ""}">
+          <input type="radio" name="questionType" value="essay"${type === "essay" ? " checked" : ""}>
+          <span>Essay</span>
+        </label>
+      </div>
+    `;
   }
 
   // Pagination soal saat create bank memakai slider window:
@@ -1744,16 +2593,39 @@
         <div class="question-form-row is-question">
           <div class="create-form-copy">
             <h2>Question</h2>
-            <p>Add a short description to help others understand this subject</p>
+            <p>Add text, equation symbols, and an optional image for this question.</p>
           </div>
           <div class="create-form-control">
             <div class="editor-shell">
               ${editorFieldHtml("questionText", question.questionText, "Enter description for the description")}
               ${editorToolbarHtml()}
             </div>
+            ${questionImageUploadHtml(question)}
           </div>
         </div>
 
+        <div class="question-form-row is-question-type">
+          <div class="create-form-copy">
+            <h2>Question Type</h2>
+            <p>Choose whether this question is scored automatically or reviewed manually.</p>
+          </div>
+          <div class="create-form-control">
+            ${questionTypeControlHtml(question)}
+          </div>
+        </div>
+
+        ${question.questionType === "essay" ? `
+          <div class="question-form-row is-essay-note">
+            <div class="create-form-copy">
+              <h2>Essay Review</h2>
+              <p>Candidate answers will be reviewed and scored manually from Test Results.</p>
+            </div>
+            <div class="essay-note-box">
+              <i data-lucide="clipboard-check"></i>
+              <span>Essay question does not need answer options.</span>
+            </div>
+          </div>
+        ` : `
         <div class="question-form-row is-answer">
           <div class="create-form-copy">
             <h2>Answer</h2>
@@ -1763,11 +2635,12 @@
             ${answerOptions.map(([answer, value], index) => `
               <label class="answer-option">
                 <input type="radio" name="correctOption" value="${answer}"${question.correctOption === answer ? " checked" : ""}>
-                <input class="create-input" name="option${answer}" type="text" value="${escapeHtml(value)}" placeholder="Option ${index + 1}">
+                <input class="create-input" name="option${answer}" type="text" value="${escapeHtml(value)}" placeholder="Option ${index + 1}" dir="auto">
               </label>
             `).join("")}
           </div>
         </div>
+        `}
       </div>
     `;
   }
@@ -1803,8 +2676,9 @@
     const rows = preview.rows.slice(0, 8).map((row) => `
       <tr class="${row.errors.length ? "has-error" : ""}">
         <td>${row.index}</td>
+        <td>${row.question.questionType === "essay" ? "Essay" : "Multiple Choice"}</td>
         <td>${escapeHtml(excerpt(row.question.questionText, 70))}</td>
-        <td>${escapeHtml(row.question.correctOption || "-")}</td>
+        <td>${escapeHtml(row.question.questionType === "essay" ? "-" : (row.question.correctOption || "-"))}</td>
         <td>${row.errors.length ? escapeHtml(row.errors.join("; ")) : "OK"}</td>
       </tr>
     `).join("");
@@ -1820,6 +2694,7 @@
           <thead>
             <tr>
               <th>No</th>
+              <th>Type</th>
               <th>Question</th>
               <th>Answer</th>
               <th>Validation</th>
@@ -1840,13 +2715,18 @@
     return `
       <div class="create-form-row">
         <div class="create-form-copy">
-          <h2>Bulk Upload Question Bank</h2>
+          <div class="bulk-upload-title">
+            <h2>Bulk Upload Question Bank</h2>
+            <button class="bulk-guide-btn" type="button" data-action="show-import-guide" aria-label="Show template guide">
+              <i data-lucide="info"></i>
+            </button>
+          </div>
           <p>Upload questions using the provided template, preview them, then import into this question bank.</p>
         </div>
         <div class="create-form-control">
           <div class="excel-upload-panel">
             <div class="excel-upload-actions">
-              <a class="secondary-btn excel-template-link" href="${questionTemplatePath}" download="template_questions_guru.xlsx">
+              <a class="secondary-btn excel-template-link" href="${questionTemplatePath}" download="template_bulk_upload_soal.xlsx">
                 <i data-lucide="download"></i>
                 <span>Download Template</span>
               </a>
@@ -1925,6 +2805,44 @@
     renderQuestionImportPreview();
     renderQuestionEditor();
     showFlash(`${importedQuestions.length} questions imported into the question bank draft.`);
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Image could not be read."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleQuestionImageFile(file) {
+    if (!questionBankDraft || !file) {
+      return;
+    }
+
+    if (!/^image\/(png|jpe?g|gif|webp)$/i.test(file.type)) {
+      showValidationPopup("Please upload a PNG, JPG, GIF, or WEBP image.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      showValidationPopup("Image size must be 2 MB or smaller.");
+      return;
+    }
+
+    syncActiveQuestionDraft();
+    const imageData = await fileToDataUrl(file);
+    if (!isQuestionImageDataUrl(imageData)) {
+      showValidationPopup("Image format is not supported.");
+      return;
+    }
+
+    // Debug: gambar ditempel pada soal aktif, bukan global bank, agar tiap nomor punya attachment sendiri.
+    const activeQuestion = questionBankDraft.questions[questionBankDraft.activeIndex];
+    activeQuestion.imageData = imageData;
+    activeQuestion.imageName = file.name;
+    renderQuestionEditor();
   }
 
   // Halaman isi bank soal sesuai referensi HRIS Dashboard fill QB.
@@ -2134,6 +3052,16 @@
 
   // Radio dibuat disabled supaya user dapat melihat jawaban benar tanpa bisa mengubahnya.
   function viewQuestionHtml(question, number) {
+    if (question.questionType === "essay") {
+      return `
+        <article class="view-question-item">
+          <h2>Question ${number} <span class="essay-badge">Essay</span></h2>
+          <p${rtlAttrs(question.questionText)}>${richTextHtml(question.questionText)}</p>
+          ${questionImageHtml(question)}
+        </article>
+      `;
+    }
+
     const options = [
       ["A", question.optionA],
       ["B", question.optionB],
@@ -2144,12 +3072,13 @@
     return `
       <article class="view-question-item">
         <h2>Question ${number}</h2>
-        <p>${richTextHtml(question.questionText)}</p>
+        <p${rtlAttrs(question.questionText)}>${richTextHtml(question.questionText)}</p>
+        ${questionImageHtml(question)}
         <div class="view-answer-list">
           ${options.map(([answer, value]) => `
             <label class="view-answer-option">
               <input type="radio" disabled${question.correctOption === answer ? " checked" : ""}>
-              <span>${answer}. ${escapeHtml(value)}</span>
+              ${answerLabelHtml(answer, value)}
             </label>
           `).join("")}
         </div>
@@ -2159,6 +3088,10 @@
 
   // View Test Result: menampilkan jawaban kandidat, menandai salah merah, dan jawaban benar hijau.
   function resultQuestionHtml(question, number) {
+    if (question.questionType === "essay") {
+      return essayReviewHtml(question, number);
+    }
+
     const options = [
       ["A", question.optionA],
       ["B", question.optionB],
@@ -2170,7 +3103,8 @@
 
     return `
       <article class="view-question-item result-question-item">
-        <h2>${number}. ${richTextHtml(question.questionText)}</h2>
+        ${questionTitleHtml(number, question.questionText)}
+        ${questionImageHtml(question)}
         <div class="view-answer-list">
           ${options.map(([answer, value]) => {
             const isCandidate = candidateAnswer === answer;
@@ -2182,13 +3116,468 @@
             return `
               <label class="view-answer-option result-answer-option${optionClass}">
                 <input type="radio" disabled${isCandidate || isCorrect ? " checked" : ""}>
-                <span>${answer}. ${escapeHtml(value)}${correctLabel}</span>
+                ${answerLabelHtml(answer, value)}${correctLabel}
               </label>
             `;
           }).join("")}
         </div>
       </article>
     `;
+  }
+
+  function essayReviewHtml(question, number, options = {}) {
+    const editable = options.editable === true;
+    return `
+      <article class="view-question-item result-question-item">
+        ${questionTitleHtml(number, question.questionText, ' <span class="essay-badge">Essay</span>')}
+        ${questionImageHtml(question)}
+        <div class="essay-answer-review">
+          <span>Candidate Answer</span>
+          <p${rtlAttrs(question.essayAnswer)}>${escapeHtml(question.essayAnswer || "No answer submitted.")}</p>
+        </div>
+        <div class="essay-review-status">
+          ${editable
+        ? '<span class="status-pill is-waiting">Ready for Review</span>'
+        : `<span class="status-pill${question.essayReviewed ? "" : " is-waiting"}">${question.essayReviewed ? `Essay Score: ${escapeHtml(question.essayScore ?? "-")}` : "Waiting for Review"}</span>`}
+        </div>
+      </article>
+    `;
+  }
+
+  function plainPdfText(value) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = richTextHtml(value)
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<sup>(.*?)<\/sup>/gi, "^$1");
+    return wrapper.textContent.replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  function decodeUtf8ByteString(value) {
+    const bytes = [];
+    Array.from(String(value || "")).forEach((char) => {
+      const code = char.charCodeAt(0);
+      if (code <= 255) {
+        bytes.push(code);
+      }
+    });
+
+    if (!bytes.length) {
+      return "";
+    }
+
+    try {
+      return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function normalizePdfUnicodeText(value) {
+    const text = String(value || "");
+    if (hasArabicText(text)) {
+      return text;
+    }
+
+    // cPanel/MySQL charset mismatch can turn Arabic into mojibake; repair that before canvas/PDF rendering.
+    const repaired = decodeUtf8ByteString(text);
+    return hasArabicText(repaired) ? repaired : text;
+  }
+
+  function pdfFileName(value) {
+    return String(value || "review-essay")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "review-essay";
+  }
+
+  let pdfPoppinsFontLoaded = false;
+
+  function arrayBufferToBase64(buffer) {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return window.btoa(binary);
+  }
+
+  async function loadPdfPoppinsFont(doc) {
+    if (pdfPoppinsFontLoaded) {
+      return;
+    }
+
+    const fonts = [
+      ["fonts/Poppins-Regular.ttf", "Poppins-Regular.ttf", "normal"],
+      ["fonts/Poppins-Bold.ttf", "Poppins-Bold.ttf", "bold"],
+      ["fonts/Poppins-BoldItalic.ttf", "Poppins-BoldItalic.ttf", "bolditalic"]
+    ];
+
+    // Debug PDF: jsPDF tidak membaca CSS Google Font, jadi TTF Poppins didaftarkan langsung ke virtual file system.
+    for (const [path, fileName, style] of fonts) {
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error(`Unable to load ${fileName}`);
+      }
+      const fontBase64 = arrayBufferToBase64(await response.arrayBuffer());
+      doc.addFileToVFS(fileName, fontBase64);
+      doc.addFont(fileName, "Poppins", style);
+    }
+
+    pdfPoppinsFontLoaded = true;
+  }
+
+  function ensurePdfSpace(doc, y, neededHeight, margin, pageHeight) {
+    if (y + neededHeight <= pageHeight - margin) {
+      return y;
+    }
+
+    doc.addPage();
+    return margin;
+  }
+
+  function addPdfWrappedText(doc, text, x, y, maxWidth, lineHeight) {
+    const lines = doc.splitTextToSize(String(text || ""), maxWidth);
+    doc.text(lines, x, y);
+    return y + (lines.length * lineHeight);
+  }
+
+  function pdfCanvasTextLines(context, text, maxWidthPx) {
+    const paragraphs = String(text || "").split(/\n/);
+    const lines = [];
+
+    paragraphs.forEach((paragraph) => {
+      const words = paragraph.trim().split(/\s+/).filter(Boolean);
+      if (!words.length) {
+        lines.push("");
+        return;
+      }
+
+      let line = "";
+      words.forEach((word) => {
+        const candidate = line ? `${line} ${word}` : word;
+        if (context.measureText(candidate).width <= maxWidthPx) {
+          line = candidate;
+          return;
+        }
+
+      if (line) {
+        lines.push(line);
+      }
+      if (context.measureText(word).width <= maxWidthPx) {
+        line = word;
+        return;
+      }
+
+      let chunk = "";
+      Array.from(word).forEach((char) => {
+        const candidateChunk = chunk + char;
+        if (context.measureText(candidateChunk).width <= maxWidthPx) {
+          chunk = candidateChunk;
+          return;
+        }
+
+        if (chunk) {
+          lines.push(chunk);
+        }
+        chunk = char;
+      });
+      line = chunk;
+    });
+
+      if (line) {
+        lines.push(line);
+      }
+    });
+
+    return lines.length ? lines : [""];
+  }
+
+  function pdfCanvasTextBlock(text, maxWidthMm, fontSize = 10, fontWeight = "normal") {
+    const scale = 3;
+    const pxPerMm = (96 / 25.4) * scale;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const widthPx = Math.max(1, Math.round(maxWidthMm * pxPerMm));
+    const fontPx = Math.max(10, Math.round(fontSize * (96 / 72) * scale));
+    const lineHeightPx = Math.round(fontPx * 1.55);
+    const paddingPx = Math.round(1.5 * pxPerMm);
+    const direction = hasArabicText(text) ? "rtl" : "ltr";
+
+    context.font = `${fontWeight} ${fontPx}px Tahoma, Arial, sans-serif`;
+    const lines = pdfCanvasTextLines(context, text, widthPx - (paddingPx * 2));
+    const heightPx = Math.max(lineHeightPx + (paddingPx * 2), (lines.length * lineHeightPx) + (paddingPx * 2));
+
+    canvas.width = widthPx;
+    canvas.height = heightPx;
+    context.clearRect(0, 0, widthPx, heightPx);
+    context.fillStyle = "#000000";
+    context.font = `${fontWeight} ${fontPx}px Tahoma, Arial, sans-serif`;
+    context.direction = direction;
+    context.textAlign = direction === "rtl" ? "right" : "left";
+    context.textBaseline = "top";
+
+    const textX = direction === "rtl" ? widthPx - paddingPx : paddingPx;
+    lines.forEach((line, index) => {
+      context.fillText(line, textX, paddingPx + (index * lineHeightPx));
+    });
+
+    return {
+      imageData: canvas.toDataURL("image/png"),
+      width: maxWidthMm,
+      height: heightPx / pxPerMm
+    };
+  }
+
+  function pdfTextBlock(doc, text, maxWidth, options = {}) {
+    const safeText = normalizePdfUnicodeText(text);
+    const fontSize = options.fontSize || 10;
+    const lineHeight = options.lineHeight || 5;
+    const fontStyle = options.fontStyle || "normal";
+    const fontWeight = fontStyle.includes("bold") ? "700" : "400";
+
+    if (hasArabicText(safeText)) {
+      // jsPDF text rendering does not shape Arabic reliably, so Arabic/RTL blocks are rendered by the browser canvas first.
+      const block = pdfCanvasTextBlock(safeText, maxWidth, fontSize, fontWeight);
+      return {
+        height: block.height,
+        draw(x, y) {
+          doc.addImage(block.imageData, "PNG", x, y, block.width, block.height);
+          return y + block.height;
+        }
+      };
+    }
+
+    doc.setFont("Poppins", fontStyle);
+    doc.setFontSize(fontSize);
+    const lines = doc.splitTextToSize(safeText, maxWidth);
+    return {
+      height: lines.length * lineHeight,
+      draw(x, y) {
+        doc.setFont("Poppins", fontStyle);
+        doc.setFontSize(fontSize);
+        doc.text(lines, x, y);
+        return y + (lines.length * lineHeight);
+      }
+    };
+  }
+
+  function drawPdfHeader(doc, result, margin, pageWidth) {
+    const contentWidth = pageWidth - (margin * 2);
+    let y = margin + 2;
+    const scoreBoxWidth = 32;
+    const scoreBoxHeight = 22;
+    const scoreBoxX = pageWidth - margin - scoreBoxWidth;
+    const scoreBoxY = margin - 2;
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("Poppins", "bold");
+    doc.setFontSize(18);
+    doc.text("ESSAY TEST RESULT", pageWidth / 2, y, { align: "center" });
+
+    // Kotak Final Score sengaja kosong untuk diisi manual penerima data essay.
+    doc.setDrawColor(128, 128, 128);
+    doc.rect(scoreBoxX, scoreBoxY, scoreBoxWidth, scoreBoxHeight);
+    doc.line(scoreBoxX, scoreBoxY + 8, scoreBoxX + scoreBoxWidth, scoreBoxY + 8);
+    doc.setFont("Poppins", "bold");
+    doc.setFontSize(8);
+    doc.text("Final Score", scoreBoxX + (scoreBoxWidth / 2), scoreBoxY + 5.4, { align: "center" });
+
+    y += 10;
+
+    doc.setFont("Poppins", "bolditalic");
+    doc.setFontSize(12);
+    doc.text("Teacher Recruitment System", margin, y);
+    y += 8;
+
+    doc.setDrawColor(211, 211, 211);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 12;
+
+    const rows = [
+      ["Full Name", result.fullName || "-"],
+      ["Position", result.education || "-"],
+      ["Region", result.region || "-"],
+      ["Submission Date", resultDateLabel(result.submittedAt)]
+    ];
+    const labelWidth = 50;
+    const rowHeight = 11;
+    const tableX = margin + 6;
+    const tableWidth = contentWidth - 12;
+
+    rows.forEach(([label, value], index) => {
+      const rowY = y + (index * rowHeight);
+      doc.setFillColor(211, 211, 211);
+      doc.rect(tableX, rowY, labelWidth, rowHeight, "F");
+      doc.setDrawColor(128, 128, 128);
+      doc.rect(tableX, rowY, tableWidth, rowHeight);
+      doc.line(tableX + labelWidth, rowY, tableX + labelWidth, rowY + rowHeight);
+      doc.setFont("Poppins", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.text(label, tableX + 3, rowY + 7);
+      doc.text(String(value), tableX + labelWidth + 3, rowY + 7);
+    });
+
+    return y + (rows.length * rowHeight) + 16;
+  }
+
+  function drawPdfAssessmentTable(doc, x, y, width) {
+    const labelWidth = 50;
+    const scoreHeight = 11;
+    const notesHeight = 28;
+    const rows = [
+      ["Score", scoreHeight],
+      ["Reviewer Notes", notesHeight]
+    ];
+    let cursorY = y;
+
+    rows.forEach(([label, rowHeight]) => {
+      doc.setFillColor(211, 211, 211);
+      doc.rect(x, cursorY, labelWidth, rowHeight, "F");
+      doc.setDrawColor(128, 128, 128);
+      doc.rect(x, cursorY, width, rowHeight);
+      doc.line(x + labelWidth, cursorY, x + labelWidth, cursorY + rowHeight);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("Poppins", "normal");
+      doc.setFontSize(10);
+      doc.text(label, x + 3, cursorY + 7);
+      // Kolom kanan sengaja kosong supaya penerima data essay bisa mengisi nilai dan catatan manual.
+      cursorY += rowHeight;
+    });
+
+    return cursorY;
+  }
+
+  function pdfDownloadDateLabel() {
+    return new Intl.DateTimeFormat("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    }).format(new Date());
+  }
+
+  function drawPdfFinalAssessment(doc, y, margin, pageWidth, pageHeight) {
+    const neededHeight = 78;
+    y = ensurePdfSpace(doc, y, neededHeight, margin, pageHeight);
+
+    doc.setDrawColor(211, 211, 211);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 14;
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("Poppins", "normal");
+    doc.setFontSize(11);
+    doc.text(`Jakarta, ${pdfDownloadDateLabel()}`, margin, y);
+    y += 22;
+
+    doc.text("Reviewed By,", margin, y);
+    y += 30;
+
+    // Nama reviewer sengaja dikosongkan agar penerima data essay bisa mengisi manual.
+    doc.text("", margin, y);
+    y += 24;
+
+    doc.text("Signature:", margin, y);
+    y += 22;
+
+    doc.line(margin, y, margin + 76, y);
+    return y + 8;
+  }
+
+  async function downloadReviewEssayPdf(resultId) {
+    const result = findApplicationResult(resultId);
+    if (!result) {
+      showValidationPopup("Test result was not found.");
+      return;
+    }
+
+    if (!window.jspdf?.jsPDF) {
+      showValidationPopup("PDF library is not ready. Please check your internet connection and refresh the dashboard.");
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    try {
+      await loadPdfPoppinsFont(doc);
+    } catch (error) {
+      showValidationPopup("Poppins font could not be loaded for the PDF. Please refresh the dashboard and try again.");
+      return;
+    }
+
+    const margin = 16;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const contentWidth = pageWidth - (margin * 2);
+    const tableX = margin + 6;
+    const tableWidth = contentWidth - 12;
+    let y = drawPdfHeader(doc, result, margin, pageWidth);
+
+    // Debug PDF: file mengikuti template_essay_result.pdf dan diunduh langsung via jsPDF.save().
+    const essayQuestions = questionsForResult(result).filter((question) => question.questionType === "essay");
+    essayQuestions.forEach((question, index) => {
+      const questionTitle = `Essay Question ${index + 1}`;
+      const questionText = plainPdfText(question.questionText);
+      const answerText = question.essayAnswer || "No answer submitted.";
+      const questionBlock = pdfTextBlock(doc, questionText, contentWidth, { fontSize: 10, lineHeight: 5 });
+      const answerBlock = pdfTextBlock(doc, answerText, tableWidth - 6, { fontSize: 10, lineHeight: 5 });
+      const answerHeight = Math.max(14, answerBlock.height + 8);
+      const blockHeight = 22 + questionBlock.height + answerHeight + 60;
+
+      y = ensurePdfSpace(doc, y, blockHeight, margin, pageHeight);
+      doc.setDrawColor(211, 211, 211);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 13;
+
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("Poppins", "bold");
+      doc.setFontSize(14);
+      doc.text(questionTitle, margin, y);
+      y += 11;
+
+      doc.setFont("Poppins", "normal");
+      doc.setFontSize(10);
+      y = questionBlock.draw(margin, y) + 4;
+
+      if (isQuestionImageDataUrl(question.imageData)) {
+        try {
+          const imageProps = doc.getImageProperties(question.imageData);
+          const imageWidth = Math.min(contentWidth, 96);
+          const imageHeight = imageWidth * (imageProps.height / imageProps.width);
+          y = ensurePdfSpace(doc, y, imageHeight + 8, margin, pageHeight);
+          doc.addImage(question.imageData, imageProps.fileType, margin, y, imageWidth, imageHeight);
+          y += imageHeight + 6;
+        } catch (error) {
+          y = addPdfWrappedText(doc, "[Question image could not be embedded]", margin, y, contentWidth, 5) + 3;
+        }
+      }
+
+      doc.setFont("Poppins", "bolditalic");
+      doc.setFontSize(12);
+      doc.text("Candidate Answer", margin, y);
+      y += 8;
+
+      doc.setFillColor(245, 245, 245);
+      doc.setDrawColor(128, 128, 128);
+      doc.rect(tableX, y, tableWidth, answerHeight, "FD");
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("Poppins", "normal");
+      doc.setFontSize(10);
+      answerBlock.draw(tableX + 3, y + 4);
+      y += answerHeight + 12;
+
+      doc.setFont("Poppins", "bolditalic");
+      doc.setFontSize(12);
+      doc.text("Reviewer Assessment", margin, y);
+      y += 8;
+
+      y = drawPdfAssessmentTable(doc, tableX, y, tableWidth) + 10;
+    });
+
+    y = drawPdfFinalAssessment(doc, y, margin, pageWidth, pageHeight);
+
+    doc.save(`${pdfFileName(result.fullName)}-review-essay.pdf`);
   }
 
   function viewQuestionPaginationHtml(questionBankId, activePage, totalPages) {
@@ -2214,21 +3603,42 @@
     return `"${String(value || "").replace(/"/g, '""')}"`;
   }
 
-  // Export hasil pelamar yang sedang ada di state menjadi file CSV.
-  function exportResults() {
-    const rows = state.applications.map((application) => [
+  // Export mengambil semua result sesuai filter secara bertahap; load menu tetap ringan karena export hanya jalan saat diminta.
+  async function exportResults() {
+    const pageSize = 100;
+    let page = 1;
+    let total = 0;
+    let allApplications = [];
+
+    do {
+      const payload = await window.RecruitmentStore.getResults({
+        page,
+        pageSize,
+        course: resultFilters.course,
+        education: resultFilters.education,
+        sortKey: resultSort.key,
+        sortDirection: resultSort.direction
+      });
+      total = payload.total;
+      allApplications = allApplications.concat(payload.applications);
+      page++;
+    } while (allApplications.length < total && page < 10000);
+
+    const rows = allApplications.map((application) => [
       application.id,
       application.fullName,
       application.email,
       application.phone,
       application.education,
       application.course,
-      resultScore(application),
+      finalScoreLabel(application),
+      multipleChoiceScore(application),
+      resultHasEssay(application) ? essayScore(application) : "-",
       hasPassedResult(application) ? "Passed" : "Not Passed",
       application.submittedAt
     ]);
     const csv = [
-      ["ID", "Full Name", "Email", "Phone", "Education", "Course", "Score", "Status", "Submitted At"],
+      ["ID", "Full Name", "Email", "Phone", "Education", "Course", "Final Score", "Multiple Choice Score", "Essay Score", "Status", "Submitted At"],
       ...rows
     ].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -2302,6 +3712,9 @@
       if (action === "import-question-preview") {
         importQuestionPreviewToDraft();
       }
+      if (action === "show-import-guide") {
+        showImportGuidePopup();
+      }
       if (action === "back-question-bank") await navigate("questions");
       if (action === "select-question-page") {
         syncActiveQuestionDraft();
@@ -2332,12 +3745,11 @@
       }
       if (action === "add-question-page") {
         syncActiveQuestionDraft();
-        if (questionBankDraft.questions.length < 100) {
-          questionBankDraft.questions.push(createEmptyQuestionDraft());
-          questionBankDraft.activeIndex = questionBankDraft.questions.length - 1;
-          questionBankDraft.pagerStart = Math.max(0, questionBankDraft.questions.length - 5);
-          renderQuestionEditor();
-        }
+        // Debug: jumlah soal tidak lagi dibatasi; admin bisa menambah sesuai kebutuhan bank soal.
+        questionBankDraft.questions.push(createEmptyQuestionDraft());
+        questionBankDraft.activeIndex = questionBankDraft.questions.length - 1;
+        questionBankDraft.pagerStart = Math.max(0, questionBankDraft.questions.length - 5);
+        renderQuestionEditor();
       }
       if (action === "remove-question-page") {
         syncActiveQuestionDraft();
@@ -2347,6 +3759,13 @@
           questionBankDraft.pagerStart = Math.min(questionBankDraft.pagerStart, Math.max(0, questionBankDraft.questions.length - 5));
           renderQuestionEditor();
         }
+      }
+      if (action === "remove-question-image") {
+        syncActiveQuestionDraft();
+        const activeQuestion = questionBankDraft.questions[questionBankDraft.activeIndex];
+        activeQuestion.imageData = "";
+        activeQuestion.imageName = "";
+        renderQuestionEditor();
       }
       if (action === "view-question-bank") await navigate("questions", "view", id);
       if (action === "edit-question-bank") {
@@ -2376,6 +3795,67 @@
         await render();
       }
       if (action === "view-test-result") await navigate("results", "view", id);
+      if (action === "view-recapitulation") {
+        await navigateRecapitulation(trigger.dataset.recapId || "");
+      }
+      if (action === "review-essay-result") {
+        const result = findApplicationResult(id);
+        if (!resultHasEssay(result)) {
+          showValidationPopup("This result does not have essay answers to review.");
+          return;
+        }
+
+        essayReviewDraft = null;
+        await navigate("results", "review", id);
+      }
+      if (action === "give-essay-score") {
+        await loadResultDetail(id);
+        const result = findApplicationResult(id);
+        if (!result) {
+          showFlash("Test result was not found.", "danger");
+          return;
+        }
+
+        const weights = await showScoreWeightPopup(result);
+        if (!weights) return;
+        if (!Number.isFinite(weights.essayScore) || weights.essayScore < 0 || weights.essayScore > 100) {
+          showValidationPopup("Essay score must be between 0 and 100.");
+          return;
+        }
+        if (!Number.isFinite(weights.multipleChoiceWeight) || !Number.isFinite(weights.essayWeight) || weights.multipleChoiceWeight + weights.essayWeight !== 100) {
+          showValidationPopup("Total weight must be 100%.");
+          return;
+        }
+
+        await window.RecruitmentStore.updateWeightedScore(id, weights);
+        showFlash("Weighted score has been saved.");
+        await render();
+      }
+      if (action === "set-essay-review") {
+        if (!essayReviewDraft) return;
+        const reviewIndex = Number(trigger.closest("[data-review-index]")?.dataset.reviewIndex || 0);
+        essayReviewDraft.reviews[reviewIndex] = trigger.dataset.value === "true";
+        await render();
+      }
+      if (action === "essay-review-page") {
+        if (!essayReviewDraft) return;
+        essayReviewDraft.page = Number(trigger.dataset.page || 1);
+        await render();
+      }
+      if (action === "essay-review-prev") {
+        if (!essayReviewDraft) return;
+        essayReviewDraft.page = Math.max(1, essayReviewDraft.page - 1);
+        await render();
+      }
+      if (action === "essay-review-next") {
+        if (!essayReviewDraft) return;
+        essayReviewDraft.page += 1;
+        await render();
+      }
+      if (action === "download-review-essay-pdf") {
+        await loadResultDetail(id);
+        await downloadReviewEssayPdf(id);
+      }
       if (action === "back-results") await navigate("results");
       if (action === "delete-application") {
         const confirmed = await showConfirmDialog(confirmOptions("delete"));
@@ -2403,11 +3883,24 @@
         await window.RecruitmentStore.sendResultEmail(id);
         showFlash("Selection test result email has been sent.");
       }
+      if (action === "send-recap-email") {
+        const email = trigger.dataset.email || "candidate";
+        const confirmed = await showConfirmDialog({
+          ...confirmOptions("submit"),
+          title: "Send result email?",
+          message: `Email kelulusan akan dikirim ke ${email}`,
+          confirmText: "Send"
+        });
+        if (!confirmed) return;
+
+        await window.RecruitmentStore.sendRecapEmail(id);
+        showFlash("Recapitulation result email has been sent.");
+      }
       if (action === "generate-exam-token") {
         const confirmed = await showConfirmDialog({
           ...confirmOptions("submit"),
           title: "Generate new token?",
-          message: "The previous active token will no longer open the selection test.",
+          message: "Only your previous active token will be replaced. Other Jakarta admin tokens stay active.",
           confirmText: "Generate"
         });
         if (!confirmed) return;
@@ -2425,7 +3918,15 @@
         };
         resultFilters = { ...resultFilterDrafts };
         tablePagination.results.page = 1;
-        refreshTableSection("results");
+        await render();
+      }
+      if (action === "set-result-view") {
+        resultViewMode = trigger.dataset.viewMode === "recap" ? "recap" : "results";
+        tablePagination.results.page = 1;
+        resultSort = resultViewMode === "recap"
+          ? { key: "name", direction: "asc" }
+          : { key: "date", direction: "desc" };
+        await render();
       }
       if (action === "sort-results") {
         const sortKey = trigger.dataset.sortKey;
@@ -2436,16 +3937,20 @@
           resultSort.direction = "asc";
         }
         tablePagination.results.page = 1;
-        refreshTableSection("results");
+        await render();
       }
       if (action === "change-table-page") {
         const sectionName = trigger.dataset.sectionName;
         if (tablePagination[sectionName]) {
           tablePagination[sectionName].page = Number(trigger.dataset.page || 1);
-          refreshTableSection(sectionName);
+          if (sectionName === "results") {
+            await render();
+          } else {
+            refreshTableSection(sectionName);
+          }
         }
       }
-      if (action === "export-results") exportResults();
+      if (action === "export-results") await exportResults();
       if (action === "reset-data") {
         const confirmed = await showConfirmDialog({
           ...confirmOptions("delete"),
@@ -2463,6 +3968,7 @@
         window.sessionStorage.removeItem(authKey);
         window.sessionStorage.removeItem(adminRegionKey);
         window.sessionStorage.removeItem(adminNameKey);
+        window.sessionStorage.removeItem(adminUsernameKey);
         window.location.href = "admin_login.html";
       }
       if (action === "close-modal") closeModal();
@@ -2477,6 +3983,12 @@
     if (editorTool) {
       event.preventDefault();
       applyEditorFormat(editorTool);
+    }
+
+    const equationTool = event.target.closest('[data-action="insert-equation-symbol"]');
+    if (equationTool) {
+      event.preventDefault();
+      insertEquationSymbol(equationTool);
     }
   });
 
@@ -2505,14 +4017,36 @@
   });
 
   // Submit modal course/question dikirim ke API sesuai data-form dan mode create/edit.
-  document.addEventListener("change", (event) => {
+  document.addEventListener("input", (event) => {
+    const editorInput = event.target.closest("[data-editor-input]");
+    if (editorInput) {
+      syncEditorValue(editorInput);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const editorInput = event.target.closest("[data-editor-input]");
+    if (!editorInput || !editorInput.closest('[data-form="question-bank-page"]') || event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+      return;
+    }
+
+    event.preventDefault();
+    insertEditorLineBreak(editorInput);
+  });
+
+  // Submit modal course/question dikirim ke API sesuai data-form dan mode create/edit.
+  document.addEventListener("change", async (event) => {
     const pageSizeSelect = event.target.closest('[data-action="change-page-size"]');
     if (pageSizeSelect) {
       const sectionName = pageSizeSelect.dataset.sectionName;
       if (tablePagination[sectionName]) {
         tablePagination[sectionName].pageSize = Number(pageSizeSelect.value);
         tablePagination[sectionName].page = 1;
-        refreshTableSection(sectionName);
+        if (sectionName === "results") {
+          await render();
+        } else {
+          refreshTableSection(sectionName);
+        }
       }
       return;
     }
@@ -2538,6 +4072,25 @@
       return;
     }
 
+    if (event.target.matches("[data-question-image-input]")) {
+      handleQuestionImageFile(event.target.files?.[0]).catch((error) => {
+        showValidationPopup(error.message || "Image could not be attached.");
+      });
+      event.target.value = "";
+      return;
+    }
+
+    const essayPageSize = event.target.closest('[data-action="essay-review-page-size"]');
+    if (essayPageSize) {
+      // Debug: dropdown jumlah item review essay harus diproses sebelum guard form question bank.
+      if (essayReviewDraft) {
+        essayReviewDraft.pageSize = Number(essayPageSize.value || 5);
+        essayReviewDraft.page = 1;
+        render();
+      }
+      return;
+    }
+
     const questionBankForm = event.target.closest('[data-form="question-bank-page"]');
     if (!questionBankForm) {
       return;
@@ -2549,6 +4102,11 @@
         const input = label.querySelector("input");
         label.classList.toggle("is-active", input.checked);
       });
+    }
+
+    if (event.target.name === "questionType") {
+      syncActiveQuestionDraft();
+      renderQuestionEditor();
     }
   });
 

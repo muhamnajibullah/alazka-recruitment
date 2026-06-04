@@ -9,16 +9,20 @@
   // Setiap akun membawa region scope yang dipakai dashboard dan API.
   const adminAccounts = {
     admin_jakarta: { password: "Alazkajakarta", region: "Jakarta", name: "Admin Jakarta" },
+    // Admin SDM Jakarta memakai scope region yang sama dengan admin_jakarta.
+    sdm_jakarta: { password: "Alazkajakarta", region: "Jakarta", name: "Admin SDM Jakarta" },
     admin_surabaya: { password: "Alazkasurabaya", region: "Surabaya", name: "Admin Surabaya" }
   };
   const authKey = "recruitment.admin.authenticated";
   const regionKey = "recruitment.admin.region";
   const nameKey = "recruitment.admin.name";
+  const usernameKey = "recruitment.admin.username";
 
   const hasCompleteSession =
     window.sessionStorage.getItem(authKey) === "1" &&
     window.sessionStorage.getItem(regionKey) &&
-    window.sessionStorage.getItem(nameKey);
+    window.sessionStorage.getItem(nameKey) &&
+    window.sessionStorage.getItem(usernameKey);
 
   // Session lama sebelum fitur Admin Jakarta/Surabaya hanya punya authKey.
   // Kalau region/name belum ada, hapus supaya user wajib login ulang.
@@ -26,6 +30,7 @@
     window.sessionStorage.removeItem(authKey);
     window.sessionStorage.removeItem(regionKey);
     window.sessionStorage.removeItem(nameKey);
+    window.sessionStorage.removeItem(usernameKey);
   }
 
   if (hasCompleteSession) {
@@ -49,6 +54,8 @@
     window.sessionStorage.setItem(authKey, "1");
     window.sessionStorage.setItem(regionKey, account.region);
     window.sessionStorage.setItem(nameKey, account.name);
+    // Username disimpan supaya token exam bisa dipisah per admin dalam region yang sama.
+    window.sessionStorage.setItem(usernameKey, inputUsername);
     window.location.href = "admin_dashboard.html";
   });
 

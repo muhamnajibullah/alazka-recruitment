@@ -181,11 +181,13 @@ function initDatabase(PDO $pdo): void
             id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             token CHAR(4) NOT NULL,
             region_scope VARCHAR(80) NOT NULL DEFAULT \'Jakarta\',
+            admin_user VARCHAR(80) NOT NULL DEFAULT \'admin_jakarta\',
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             expires_at DATETIME NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_exam_tokens_active (is_active),
+            INDEX idx_exam_tokens_region_admin_active (region_scope, admin_user, is_active),
             INDEX idx_exam_tokens_created_at (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
@@ -195,7 +197,9 @@ function initDatabase(PDO $pdo): void
     $pdo->exec('ALTER TABLE courses MODIFY education_level VARCHAR(500) NOT NULL');
     ensureColumn($pdo, 'courses', 'region_scope', "VARCHAR(80) NOT NULL DEFAULT 'Jakarta'");
     ensureColumn($pdo, 'exam_tokens', 'region_scope', "VARCHAR(80) NOT NULL DEFAULT 'Jakarta'");
+    ensureColumn($pdo, 'exam_tokens', 'admin_user', "VARCHAR(80) NOT NULL DEFAULT 'admin_jakarta'");
     ensureColumn($pdo, 'exam_tokens', 'expires_at', 'DATETIME NULL');
+    ensureExamTokenAdminIndex($pdo);
     ensureCourseRegionUniqueIndex($pdo);
     ensureColumn($pdo, 'teacher_applications', 'region', "VARCHAR(80) NOT NULL DEFAULT ''");
     ensureColumn($pdo, 'test_results', 'region', "VARCHAR(80) NOT NULL DEFAULT ''");
@@ -205,6 +209,10 @@ function initDatabase(PDO $pdo): void
     ensureColumn($pdo, 'test_results', 'total_questions', 'INT UNSIGNED NOT NULL DEFAULT 0');
     ensureColumn($pdo, 'test_results', 'questions_json', 'LONGTEXT NULL');
     ensureColumn($pdo, 'test_results', 'answers_json', 'LONGTEXT NULL');
+    // Attach image disimpan sebagai Data URL di JSON, jadi database lama wajib dinaikkan ke LONGTEXT.
+    ensureColumnType($pdo, 'question_banks', 'questions_json', 'LONGTEXT NOT NULL');
+    ensureColumnType($pdo, 'test_results', 'questions_json', 'LONGTEXT NULL');
+    ensureColumnType($pdo, 'test_results', 'answers_json', 'LONGTEXT NULL');
 }
 
 function ensureCourseRegionUniqueIndex(PDO $pdo): void
@@ -230,6 +238,23 @@ function ensureCourseRegionUniqueIndex(PDO $pdo): void
     }
 }
 
+function ensureExamTokenAdminIndex(PDO $pdo): void
+{
+    // Index ini menjaga query active token tetap cepat setelah token dipisah per admin.
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = "exam_tokens"
+           AND INDEX_NAME = "idx_exam_tokens_region_admin_active"'
+    );
+    $stmt->execute();
+
+    if ((int) $stmt->fetchColumn() === 0) {
+        $pdo->exec('ALTER TABLE exam_tokens ADD INDEX idx_exam_tokens_region_admin_active (region_scope, admin_user, is_active)');
+    }
+}
+
 // Menambahkan kolom baru pada database lama tanpa perlu import ulang database.sql.
 function ensureColumn(PDO $pdo, string $table, string $column, string $definition): void
 {
@@ -247,5 +272,26 @@ function ensureColumn(PDO $pdo, string $table, string $column, string $definitio
 
     if ((int) $stmt->fetchColumn() === 0) {
         $pdo->exec(sprintf('ALTER TABLE `%s` ADD COLUMN `%s` %s', $table, $column, $definition));
+    }
+}
+
+// Mengubah tipe kolom database lama agar fitur baru bisa jalan tanpa import ulang database.sql.
+function ensureColumnType(PDO $pdo, string $table, string $column, string $definition): void
+{
+    $stmt = $pdo->prepare(
+        'SELECT DATA_TYPE
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = :table_name
+           AND COLUMN_NAME = :column_name'
+    );
+    $stmt->execute([
+        ':table_name' => $table,
+        ':column_name' => $column,
+    ]);
+
+    $dataType = strtolower((string) ($stmt->fetchColumn() ?: ''));
+    if ($dataType !== '' && $dataType !== 'longtext') {
+        $pdo->exec(sprintf('ALTER TABLE `%s` MODIFY `%s` %s', $table, $column, $definition));
     }
 }

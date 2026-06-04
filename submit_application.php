@@ -45,6 +45,22 @@ function cleanAnswer($value): string
     return in_array($answer, ['A', 'B', 'C', 'D'], true) ? $answer : '';
 }
 
+function cleanQuestionImage($value): string
+{
+    $image = cleanString($value);
+    if ($image === '') {
+        return '';
+    }
+
+    // Debug: hanya Data URL gambar dari question bank yang diteruskan ke payload test/result.
+    return preg_match('/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=]+$/i', $image) ? $image : '';
+}
+
+function cleanQuestionType($value): string
+{
+    return cleanString($value) === 'essay' ? 'essay' : 'multiple_choice';
+}
+
 // Education level production tetap tersedia meskipun tabel courses masih kosong.
 function allowedEducationLevels(): array
 {
@@ -58,6 +74,7 @@ function allowedEducationLevels(): array
         'Driver',
         'Teknisi',
         'Petugas Perpus',
+        'Purchasing Staff',
     ];
 }
 
@@ -251,11 +268,14 @@ function publicQuestions(array $questions): array
         $question = is_array($question) ? $question : [];
         $publicQuestions[] = [
             'number' => $index + 1,
+            'questionType' => cleanQuestionType($question['questionType'] ?? ''),
             'questionText' => cleanString($question['questionText'] ?? ''),
             'optionA' => cleanString($question['optionA'] ?? ''),
             'optionB' => cleanString($question['optionB'] ?? ''),
             'optionC' => cleanString($question['optionC'] ?? ''),
             'optionD' => cleanString($question['optionD'] ?? ''),
+            'imageData' => cleanQuestionImage($question['imageData'] ?? ''),
+            'imageName' => cleanString($question['imageName'] ?? ''),
             'sourceIndex' => (int) ($question['sourceIndex'] ?? $index),
         ];
     }
@@ -302,6 +322,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'courses
         'success' => true,
         'coursesByEducation' => $publishedCourses['all'],
         'coursesByRegionEducation' => $publishedCourses['byRegion'],
+    ]);
+}
+
+// Dipakai resume localStorage untuk memastikan sesi yang sudah submit tidak kembali ke halaman soal.
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'result_status') {
+    $applicationId = (int) ($_GET['application_id'] ?? 0);
+
+    if ($applicationId <= 0) {
+        respond(422, ['success' => false, 'message' => 'Invalid application ID.']);
+    }
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM test_results WHERE application_id = :application_id');
+    $stmt->execute([':application_id' => $applicationId]);
+
+    respond(200, [
+        'success' => true,
+        'submitted' => (int) $stmt->fetchColumn() > 0,
     ]);
 }
 
@@ -354,45 +391,95 @@ if (($_GET['action'] ?? '') === 'finish_test') {
     $applicationId = (int) ($data['applicationId'] ?? 0);
     $questionBankId = (int) ($data['questionBankId'] ?? 0);
     $answers = is_array($data['answers'] ?? null) ? $data['answers'] : [];
+    $essayAnswers = is_array($data['essayAnswers'] ?? null) ? $data['essayAnswers'] : [];
 
     if ($applicationId <= 0) {
         respond(422, ['success' => false, 'message' => 'Invalid application ID.']);
+    }
+
+    // Jika koneksi putus setelah server menyimpan hasil, submit ulang dari localStorage tidak membuat result dobel.
+    $stmt = $pdo->prepare(
+        'SELECT id, full_name AS fullName, region, education, course, score, correct_count AS correctCount, wrong_count AS wrongCount, total_questions AS totalQuestions
+         FROM test_results
+         WHERE application_id = :application_id
+         ORDER BY id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([':application_id' => $applicationId]);
+    $existingResult = $stmt->fetch();
+    if ($existingResult) {
+        respond(200, [
+            'success' => true,
+            'message' => 'Test result has already been saved.',
+            'result' => [
+                'id' => (int) $existingResult['id'],
+                'fullName' => (string) $existingResult['fullName'],
+                'region' => (string) $existingResult['region'],
+                'education' => (string) $existingResult['education'],
+                'course' => (string) $existingResult['course'],
+                'score' => (int) $existingResult['score'],
+                'correctCount' => (int) $existingResult['correctCount'],
+                'wrongCount' => (int) $existingResult['wrongCount'],
+                'totalQuestions' => (int) $existingResult['totalQuestions'],
+            ],
+        ]);
     }
 
     $payload = selectionTestPayload($pdo, $applicationId, $questionBankId);
     $application = $payload['application'];
     $questions = $payload['questions'];
     $totalQuestions = count($questions);
+    $multipleChoiceCount = 0;
     $correctCount = 0;
     $resultQuestions = [];
     $cleanAnswers = [];
+    $hasEssay = false;
 
     foreach ($questions as $index => $question) {
-        $candidateAnswer = cleanAnswer($answers[(string) $index] ?? $answers[$index] ?? '');
-        $correctAnswer = cleanAnswer($question['correctOption'] ?? '');
-        $isCorrect = $candidateAnswer !== '' && $candidateAnswer === $correctAnswer;
+        $questionType = cleanQuestionType($question['questionType'] ?? '');
+        $candidateAnswer = '';
+        $correctAnswer = '';
+        $essayAnswer = '';
+        $isCorrect = false;
 
-        if ($isCorrect) {
-            $correctCount++;
+        if ($questionType === 'essay') {
+            $hasEssay = true;
+            $essayAnswer = cleanString($essayAnswers[(string) $index] ?? $essayAnswers[$index] ?? '');
+        } else {
+            $multipleChoiceCount++;
+            $candidateAnswer = cleanAnswer($answers[(string) $index] ?? $answers[$index] ?? '');
+            $correctAnswer = cleanAnswer($question['correctOption'] ?? '');
+            $isCorrect = $candidateAnswer !== '' && $candidateAnswer === $correctAnswer;
+
+            if ($isCorrect) {
+                $correctCount++;
+            }
         }
 
-        $cleanAnswers[(string) $index] = $candidateAnswer;
+        $cleanAnswers[(string) $index] = $questionType === 'essay' ? $essayAnswer : $candidateAnswer;
         // Snapshot ini dipakai admin untuk melihat jawaban kandidat dan jawaban benar saat view result.
         $resultQuestions[] = [
+            'sourceIndex' => $index,
+            'questionType' => $questionType,
             'questionText' => cleanString($question['questionText'] ?? ''),
             'optionA' => cleanString($question['optionA'] ?? ''),
             'optionB' => cleanString($question['optionB'] ?? ''),
             'optionC' => cleanString($question['optionC'] ?? ''),
             'optionD' => cleanString($question['optionD'] ?? ''),
             'correctOption' => $correctAnswer,
+            'imageData' => cleanQuestionImage($question['imageData'] ?? ''),
+            'imageName' => cleanString($question['imageName'] ?? ''),
             'candidateAnswer' => $candidateAnswer,
+            'essayAnswer' => $essayAnswer,
+            'essayReviewed' => $questionType === 'essay' ? false : true,
+            'essayScore' => null,
             'isCorrect' => $isCorrect,
         ];
     }
 
-    // Rumus score: jumlah benar dibagi total soal yang tampil di selection test, lalu dikali 100.
-    $wrongCount = $totalQuestions - $correctCount;
-    $score = $totalQuestions > 0 ? (int) round(($correctCount / $totalQuestions) * 100) : 0;
+    // Rumus awal hanya menilai multiple choice. Essay menunggu review admin dan score manual.
+    $wrongCount = max(0, $multipleChoiceCount - $correctCount);
+    $score = $multipleChoiceCount > 0 ? (int) round(($correctCount / $multipleChoiceCount) * 100) : 0;
 
     $stmt = $pdo->prepare(
         'INSERT INTO test_results
@@ -440,7 +527,6 @@ $phone = cleanString($_POST['phone'] ?? '');
 $region = cleanString($_POST['region'] ?? '');
 $education = normalizeEducationLevel(cleanString($_POST['education'] ?? ''));
 $course = cleanString($_POST['course'] ?? '');
-$examToken = cleanString($_POST['examToken'] ?? '');
 
 $errors = [];
 $nameLength = function_exists('mb_strlen') ? mb_strlen($fullName) : strlen($fullName);
@@ -470,10 +556,6 @@ if (!in_array($education, allowedEducationLevels(), true)) {
 
 if (!isset($coursesByEducation[$education]) || !in_array($course, $coursesByEducation[$education], true)) {
     $errors['course'] = 'Please select an available course.';
-}
-
-if (!hasValidExamToken($pdo, $examToken, $region)) {
-    $errors['examToken'] = 'Please enter the active 4 digit exam token.';
 }
 
 if ($errors === []) {

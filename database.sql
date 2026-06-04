@@ -90,11 +90,13 @@ CREATE TABLE IF NOT EXISTS exam_tokens (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   token CHAR(4) NOT NULL,
   region_scope VARCHAR(80) NOT NULL DEFAULT 'Jakarta',
+  admin_user VARCHAR(80) NOT NULL DEFAULT 'admin_jakarta',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   expires_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_exam_tokens_active (is_active),
+  INDEX idx_exam_tokens_region_admin_active (region_scope, admin_user, is_active),
   INDEX idx_exam_tokens_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

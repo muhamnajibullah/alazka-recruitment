@@ -7,7 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/application.css">
+  <!-- Version query dipakai agar cPanel/browser tidak memakai CSS lama dari cache setelah deploy. -->
+  <link rel="stylesheet" href="css/application.css?v=20260521-token-flow">
 </head>
 <body>
   <main class="page" id="applicationPage">
@@ -15,8 +16,8 @@
     <section class="form-side" aria-labelledby="form-title">
       <img class="brand" src="Image/logo%20al%20azhar%203.png" alt="Al-Azhar Kelapa Gading">
 
-      <h1 class="title" id="form-title">Teacher Application Form</h1>
-      <p class="subtitle">Complete your information to apply as a teacher in our system</p>
+      <h1 class="title" id="form-title">Application Form</h1>
+      <p class="subtitle">Complete the required information to continue your application process</p>
       <div class="rule" aria-hidden="true"></div>
 
       <form class="application-form" id="applicationForm" novalidate>
@@ -34,7 +35,7 @@
 
         <div class="field-group">
           <label for="phone">Phone Number</label>
-          <input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Enter your phone number">
+          <input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Enter your phone number (Ex: 081234567890)">
           <p class="field-error" id="phoneError"></p>
         </div>
 
@@ -67,12 +68,6 @@
           <p class="field-error" id="courseError"></p>
         </div>
 
-        <div class="field-group">
-          <label for="examToken">Exam Token</label>
-          <input id="examToken" name="examToken" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="Enter 4 digit token">
-          <p class="field-error" id="examTokenError"></p>
-        </div>
-
         <button class="start-button" type="submit">Start Test</button>
         <p class="status" id="status" role="status" aria-live="polite"></p>
       </form>
@@ -98,6 +93,40 @@
     </div>
   </div>
 
+  <!-- Halaman token muncul setelah application tersimpan dan sebelum soal selection test dibuka. -->
+  <main class="token-page" id="tokenPage" hidden>
+    <section class="token-entry-card" aria-labelledby="tokenTitle">
+      <button class="token-back" type="button" id="tokenBackButton" aria-label="Back to application form">&larr;</button>
+      <img class="token-logo" src="Image/logo%20al%20azhar%203.png" alt="Al-Azhar Kelapa Gading">
+      <p class="token-kicker">Selection Test Access</p>
+      <h1 id="tokenTitle">Enter Exam Token</h1>
+      <p class="token-copy">Use the active token from the recruitment admin to open your selection test.</p>
+
+      <form class="token-form" id="tokenForm" novalidate>
+        <div class="field-group">
+          <label for="examToken">Exam Token</label>
+          <!-- Token sengaja divalidasi di halaman ini agar form application tetap ringkas. -->
+          <input id="examToken" name="examToken" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="Enter 4 digit token">
+          <p class="field-error" id="examTokenError"></p>
+        </div>
+
+        <button class="start-button token-submit-button" type="submit" id="tokenSubmitButton">Continue</button>
+        <p class="status token-status" id="tokenStatus" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+
+  <!-- Halaman panduan muncul setelah token valid, sebelum timer selection test dimulai. -->
+  <main class="test-guide-page" id="testGuidePage" hidden>
+    <section class="test-guide-card" aria-labelledby="testGuideTitle">
+      <img class="token-logo" src="Image/logo%20al%20azhar%203.png" alt="Al-Azhar Kelapa Gading">
+      <p class="token-kicker">Selection Test Guide</p>
+      <h1 id="testGuideTitle">Before You Start</h1>
+      <div class="test-guide-content" id="testGuideContent"></div>
+      <button class="start-button" type="button" id="startSelectionTestButton">Start Test</button>
+    </section>
+  </main>
+
   <!-- Halaman selection test ditampilkan setelah data application berhasil disimpan. -->
   <main class="selection-page" id="selectionPage" hidden>
     <header class="test-topbar">
@@ -113,7 +142,7 @@
         <div class="candidate-chip">
           <div class="candidate-copy">
             <strong id="candidateHeaderName">Candidate</strong>
-            <span><mark>Guest</mark> Teacher</span>
+            <span><mark>Guest</mark> Candidate</span>
           </div>
           <div class="candidate-avatar" id="candidateAvatar">CT</div>
         </div>
@@ -122,7 +151,7 @@
 
     <section class="test-shell" aria-labelledby="testTitle">
       <div class="test-head">
-        <button class="test-back" type="button" id="testBackButton" aria-label="Back to application form">&larr;</button>
+        <span class="test-head-spacer" aria-hidden="true"></span>
         <div>
           <h1 id="testTitle">Selection Test</h1>
           <p id="testCandidateLine"></p>
@@ -142,12 +171,20 @@
 
   <div class="modal confirm-test-modal" id="finishConfirmModal" role="dialog" aria-modal="true" aria-labelledby="finishConfirmTitle">
     <div class="dialog">
-      <h2 id="finishConfirmTitle">Submit Selection Test?</h2>
-      <p>Your selected answers will be submitted for review. Unanswered questions will remain blank.</p>
+      <h2 id="finishConfirmTitle">Submit Answer?</h2>
+      <p>Are you sure to submit the answer?</p>
       <div class="confirm-test-actions">
         <button class="confirm-cancel-button" type="button" id="cancelFinishTest">Cancel</button>
-        <button type="button" id="confirmFinishTest">Submit Test</button>
+        <button type="button" id="confirmFinishTest">Submit Answer</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal confirm-test-modal" id="timeEndedModal" role="dialog" aria-modal="true" aria-labelledby="timeEndedTitle">
+    <div class="dialog">
+      <h2 id="timeEndedTitle">Time Ended</h2>
+      <p>The examination time has ended. Your answers have been submitted successfully.</p>
+      <button type="button" id="goToResultButton">Go to Result</button>
     </div>
   </div>
 
@@ -167,8 +204,12 @@
     </section>
   </main>
 
-  <!-- Urutan penting: recruitment-store.js harus dimuat sebelum submit-application.js. -->
-  <script src="js/recruitment-store.js"></script>
-  <script src="js/submit-application.js"></script>
+  <!--
+    Urutan penting: recruitment-store.js harus dimuat sebelum submit-application.js.
+    Version query memaksa browser mengambil JS terbaru; tanpa ini cPanel sering masih menyajikan JS lama
+    yang langsung memvalidasi token saat Start Test dan membuat halaman token tidak pernah tampil.
+  -->
+  <script src="js/recruitment-store.js?v=20260521-token-flow"></script>
+  <script src="js/submit-application.js?v=20260521-token-flow"></script>
 </body>
 </html>
