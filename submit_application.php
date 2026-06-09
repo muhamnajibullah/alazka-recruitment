@@ -61,23 +61,6 @@ function cleanQuestionType($value): string
     return cleanString($value) === 'essay' ? 'essay' : 'multiple_choice';
 }
 
-// Education level production tetap tersedia meskipun tabel courses masih kosong.
-function allowedEducationLevels(): array
-{
-    return [
-        'Guru/Karyawan TK',
-        'Guru/Karyawan SD',
-        'Guru/Karyawan SMP',
-        'Guru/Karyawan SMA',
-        'Cleaning Service',
-        'Petugas Keamanan',
-        'Driver',
-        'Teknisi',
-        'Petugas Perpus',
-        'Purchasing Staff',
-    ];
-}
-
 // Normalisasi Position menjaga data lama seperti "SMA" tetap cocok dengan label baru "Guru/Karyawan SMA".
 function normalizeEducationLevel(string $value): string
 {
@@ -132,6 +115,56 @@ function courseMatchesEducation(string $storedValue, string $education): bool
 function allowedRegions(): array
 {
     return ['Jakarta', 'Surabaya'];
+}
+
+function educationLevelsByRegion(PDO $pdo): array
+{
+    $stmt = $pdo->query(
+        'SELECT name, region_scope
+         FROM education_levels
+         ORDER BY region_scope ASC, name ASC'
+    );
+
+    $byRegion = [];
+    $all = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $name = normalizeEducationLevel((string) $row['name']);
+        $region = (string) ($row['region_scope'] ?? 'Jakarta');
+        if ($name === '') {
+            continue;
+        }
+
+        if (!isset($byRegion[$region])) {
+            $byRegion[$region] = [];
+        }
+        if (!in_array($name, $byRegion[$region], true)) {
+            $byRegion[$region][] = $name;
+        }
+        if (!in_array($name, $all, true)) {
+            $all[] = $name;
+        }
+    }
+
+    return [
+        'all' => $all,
+        'byRegion' => $byRegion,
+    ];
+}
+
+function educationLevelAllowed(PDO $pdo, string $education, string $region): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM education_levels
+         WHERE name = :name
+           AND region_scope = :region_scope'
+    );
+    $stmt->execute([
+        ':name' => normalizeEducationLevel($education),
+        ':region_scope' => $region,
+    ]);
+
+    return (int) $stmt->fetchColumn() > 0;
 }
 
 // Mengambil course aktif yang sudah punya question bank published.
@@ -318,8 +351,11 @@ try {
 // Endpoint GET untuk mengisi pilihan education/course di form.
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'courses') {
     $publishedCourses = publishedCoursesByEducation($pdo);
+    $educationLevels = educationLevelsByRegion($pdo);
     respond(200, [
         'success' => true,
+        'educationLevels' => $educationLevels['all'],
+        'educationLevelsByRegion' => $educationLevels['byRegion'],
         'coursesByEducation' => $publishedCourses['all'],
         'coursesByRegionEducation' => $publishedCourses['byRegion'],
     ]);
@@ -477,7 +513,7 @@ if (($_GET['action'] ?? '') === 'finish_test') {
         ];
     }
 
-    // Rumus awal hanya menilai multiple choice. Essay menunggu review admin dan score manual.
+    // Debug scoring: MC-only langsung final di score ini; test dengan essay memakai nilai ini sebagai draft sampai admin Save Give Score.
     $wrongCount = max(0, $multipleChoiceCount - $correctCount);
     $score = $multipleChoiceCount > 0 ? (int) round(($correctCount / $multipleChoiceCount) * 100) : 0;
 
@@ -550,7 +586,7 @@ if (!in_array($region, allowedRegions(), true)) {
     $errors['region'] = 'Please select your region.';
 }
 
-if (!in_array($education, allowedEducationLevels(), true)) {
+if (!educationLevelAllowed($pdo, $education, $region)) {
     $errors['education'] = 'Please select your position.';
 }
 

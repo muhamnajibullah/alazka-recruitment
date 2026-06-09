@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Dashboard - Teacher Recruit</title>
+  <title>Admin Dashboard - Employee Recruit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/admin-dashboard.css">
+  <!-- Version query memaksa browser/cPanel mengambil CSS terbaru setelah deploy. -->
+  <link rel="stylesheet" href="css/admin-dashboard.css?v=20260604-cache-bust">
   <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -132,9 +133,9 @@
   </div>
 
   <!-- Urutan penting: recruitment-store.js harus dimuat sebelum admin-dashboard.js. -->
-  <script src="js/recruitment-store.js?v=20260602-recap-gap"></script>
+  <script src="js/recruitment-store.js?v=20260604-cache-bust"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="js/admin-dashboard.js?v=20260602-recap-gap"></script>
+  <script src="js/admin-dashboard.js?v=20260604-cache-bust"></script>
 </body>
 </html>

@@ -52,6 +52,7 @@
 
   // State selalu diisi ulang dari MySQL lewat admin_api.php setiap render.
   let state = {
+    educationLevels: [],
     courses: [],
     questionBanks: [],
     applications: [],
@@ -59,6 +60,23 @@
   };
 
   // Filter lokal untuk tabel Test Result. Draft baru diterapkan ke tabel setelah tombol Apply ditekan.
+  let courseFilters = {
+    position: "",
+    status: ""
+  };
+  let courseFilterDrafts = { ...courseFilters };
+  let positionFilters = {
+    name: ""
+  };
+  let positionFilterDrafts = { ...positionFilters };
+  let courseSort = {
+    key: "",
+    direction: "asc"
+  };
+  let positionSort = {
+    key: "",
+    direction: "asc"
+  };
   let resultFilters = {
     course: "",
     education: ""
@@ -82,6 +100,7 @@
   const pageSizeOptions = [5, 10, 15, 20, 50];
   const tablePagination = {
     course: { page: 1, pageSize: 5 },
+    position: { page: 1, pageSize: 5 },
     questions: { page: 1, pageSize: 5 },
     results: { page: 1, pageSize: 5 }
   };
@@ -113,6 +132,10 @@
   // ID aktif dibaca dari query string untuk halaman View/Edit Course.
   function activeId() {
     return Number(new URLSearchParams(window.location.search).get("id") || 0);
+  }
+
+  function activeCourseMode(section = activeSection(), action = activeAction()) {
+    return section === "course" && ["positions", "position-create", "position-view"].includes(action) ? "position" : "course";
   }
 
   function activeRecapId() {
@@ -816,7 +839,12 @@
   async function loadStateForRoute(section = activeSection(), action = activeAction(), recordId = activeId()) {
     // Setiap menu memuat data sekecil mungkin supaya pindah tab production tidak menarik payload besar.
     if (section === "course") {
-      state.courses = await window.RecruitmentStore.getCourses();
+      const [courses, educationLevels] = await Promise.all([
+        window.RecruitmentStore.getCourses(),
+        window.RecruitmentStore.getEducationLevels()
+      ]);
+      state.courses = courses;
+      state.educationLevels = educationLevels;
       return;
     }
 
@@ -887,6 +915,15 @@
     }
 
     state = await window.RecruitmentStore.getState();
+  }
+
+  function positionNames() {
+    const rows = Array.isArray(state.educationLevels) ? state.educationLevels : [];
+    return rows.map((position) => position.name || position).filter(Boolean);
+  }
+
+  function findPosition(positionId) {
+    return (state.educationLevels || []).find((position) => Number(position.id) === Number(positionId));
   }
 
   function courseEducationLevels(course) {
@@ -981,7 +1018,7 @@
   }
 
   function hasPassedResult(result) {
-    if (result.essayReviewStatus === "waiting" && !resultScoreFinalized(result)) {
+    if (resultNeedsFinalScore(result)) {
       return false;
     }
 
@@ -989,7 +1026,7 @@
   }
 
   function resultStatusHtml(result) {
-    if (result.essayReviewStatus === "waiting" && !resultScoreFinalized(result)) {
+    if (resultNeedsFinalScore(result)) {
       return '<span class="status-pill is-waiting">Waiting for Review</span>';
     }
 
@@ -1010,8 +1047,18 @@
       return false;
     }
 
+    // Debug recap/UI: MC-only otomatis final; marker ini hanya wajib untuk test yang punya essay.
+    if (!resultHasEssay(result)) {
+      return true;
+    }
+
     // Debug: marker finalisasi score disimpan di questions_json agar tidak perlu migrasi tabel.
     return result.weightedScoreFinalized === true || questionsForResult(result).some((question) => question.weightedScoreFinalized === true);
+  }
+
+  function resultNeedsFinalScore(result) {
+    // MC-only tidak masuk alur review manual; essay menunggu Give Score agar score final tersimpan ke database.
+    return resultHasEssay(result) && !resultScoreFinalized(result);
   }
 
   function multipleChoiceScore(result) {
@@ -1157,6 +1204,76 @@
     ].join("");
   }
 
+  function coursePositionFilterOptions(selectedValue) {
+    return [
+      '<option value="">All Position</option>',
+      ...positionNames().map((value) => (
+        `<option value="${escapeHtml(value)}"${value === selectedValue ? " selected" : ""}>${escapeHtml(value)}</option>`
+      ))
+    ].join("");
+  }
+
+  function positionNameFilterOptions(selectedValue) {
+    return [
+      '<option value="">All Position Name</option>',
+      ...positionNames().map((value) => (
+        `<option value="${escapeHtml(value)}"${value === selectedValue ? " selected" : ""}>${escapeHtml(value)}</option>`
+      ))
+    ].join("");
+  }
+
+  function courseStatusFilterOptions(selectedValue) {
+    return [
+      '<option value="">All Status</option>',
+      `<option value="1"${selectedValue === "1" ? " selected" : ""}>Active</option>`,
+      `<option value="0"${selectedValue === "0" ? " selected" : ""}>Inactive</option>`
+    ].join("");
+  }
+
+  function selectWithChevronHtml(name, optionsHtml, label, extraClass = "") {
+    return `
+      <label class="filter-inline-field has-chevron ${extraClass}">
+        <span class="sr-only">${escapeHtml(label)}</span>
+        <select name="${escapeHtml(name)}">
+          ${optionsHtml}
+        </select>
+        <i data-lucide="chevron-down"></i>
+      </label>
+    `;
+  }
+
+  function courseFilterMenuHtml() {
+    return `
+      <div class="course-filter" id="courseFilter" aria-label="Filter courses">
+        <div class="filter-inline-group">
+          ${selectWithChevronHtml("position", coursePositionFilterOptions(courseFilterDrafts.position), "Position", "course-filter-field")}
+          ${selectWithChevronHtml("status", courseStatusFilterOptions(courseFilterDrafts.status), "Status", "course-status-filter-field")}
+          <button class="filter-apply" type="button" data-action="apply-course-filter">Apply</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function positionFilterMenuHtml() {
+    return `
+      <div class="position-filter" id="positionFilter" aria-label="Filter positions">
+        <div class="filter-inline-group">
+          ${selectWithChevronHtml("name", positionNameFilterOptions(positionFilterDrafts.name), "Position Name", "position-name-filter-field")}
+          <button class="filter-apply" type="button" data-action="apply-position-filter">Apply</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function sortIcon(direction) {
+    return direction === "asc" ? "arrow-up" : "arrow-down";
+  }
+
+  function sortedByName(items, direction, getName) {
+    const multiplier = direction === "asc" ? 1 : -1;
+    return [...items].sort((a, b) => String(getName(a) || "").localeCompare(String(getName(b) || ""), undefined, { sensitivity: "base" }) * multiplier);
+  }
+
   function resultViewToggleHtml() {
     // Toggle ini hanya mengganti data yang diminta ke server; tidak mengubah data test_results.
     return `
@@ -1182,18 +1299,8 @@
       <div class="result-filter" id="resultFilter" aria-label="Filter test results">
         <div class="filter-inline-group">
           ${resultViewToggleHtml()}
-          <label class="filter-inline-field">
-            <span class="sr-only">Course</span>
-            <select name="course">
-              ${resultFilterOptions("course", "All Course", resultFilterDrafts.course)}
-            </select>
-          </label>
-          <label class="filter-inline-field">
-            <span class="sr-only">Position</span>
-            <select name="education">
-              ${resultFilterOptions("education", "All Position", resultFilterDrafts.education, window.RecruitmentStore.educationLevels)}
-            </select>
-          </label>
+          ${selectWithChevronHtml("course", resultFilterOptions("course", "All Course", resultFilterDrafts.course), "Course")}
+          ${selectWithChevronHtml("education", resultFilterOptions("education", "All Position", resultFilterDrafts.education, window.RecruitmentStore.educationLevels), "Position")}
           <button class="filter-apply" type="button" data-action="apply-result-filter">Apply</button>
         </div>
       </div>
@@ -1216,6 +1323,7 @@
   function refreshTableSection(section = activeSection()) {
     const renderers = {
       course: renderCourses,
+      position: renderPositions,
       questions: renderQuestions,
       results: renderResults
     };
@@ -1319,10 +1427,90 @@
     `;
   }
 
+  function courseModeToggleHtml(activeMode = activeCourseMode()) {
+    return `
+      <div class="course-mode-toggle" aria-label="Course menu mode">
+        <button class="${activeMode === "course" ? "is-active" : ""}" type="button" data-action="show-course-table">
+          <i data-lucide="book-open"></i>
+          <span>Course</span>
+        </button>
+        <button class="${activeMode === "position" ? "is-active" : ""}" type="button" data-action="show-position-table">
+          <i data-lucide="briefcase-business"></i>
+          <span>Position</span>
+        </button>
+      </div>
+    `;
+  }
+
+  function renderPositions() {
+    const allPositionRows = Array.isArray(state.educationLevels) ? state.educationLevels : [];
+    const filteredPositions = allPositionRows.filter((position) => !positionFilters.name || position.name === positionFilters.name);
+    const allPositions = positionSort.key === "name"
+      ? sortedByName(filteredPositions, positionSort.direction, (position) => position.name)
+      : filteredPositions;
+    const { rows: positions } = tablePageSlice("position", allPositions);
+    const rows = positions.map((position) => `
+      <tr>
+        <td>${escapeHtml(position.name)}</td>
+        <td>
+          <div class="action-group">
+            <button class="icon-btn view" type="button" data-action="view-position" data-id="${position.id}" data-tooltip="View" aria-label="View position"><i data-lucide="eye"></i></button>
+            <button class="icon-btn delete" type="button" data-action="delete-position" data-id="${position.id}" data-tooltip="Delete" aria-label="Delete position"><i data-lucide="trash-2"></i></button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+
+    return `
+      <section class="table-card">
+        <div class="table-head">
+          <div class="table-title">
+            <h1>Position table</h1>
+            <span class="count-badge">${allPositions.length} position</span>
+          </div>
+          <div class="table-head-actions">
+            ${positionFilterMenuHtml()}
+            ${courseModeToggleHtml("position")}
+            <button class="create-btn" type="button" data-action="create-position">
+              <span>Add Position</span>
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 65%;">
+                  <button class="sort-header${positionSort.key === "name" ? " is-active" : ""}" type="button" data-action="sort-positions" data-sort-key="name">
+                    <span>Position</span>
+                    <i class="sort-icon" data-lucide="${positionSort.key === "name" ? sortIcon(positionSort.direction) : "arrow-down"}"></i>
+                  </button>
+                </th>
+                <th style="width: 35%;">Action</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${allPositions.length ? "" : '<div class="empty-state">No positions found for this filter.</div>'}
+        ${tableFooterHtml("position", allPositions.length)}
+      </section>
+    `;
+  }
+
   // Membuat HTML tabel Course dari state.courses.
   function renderCourses() {
-    const allCourses = coursesWithTotals();
-    const { rows: courses } = tablePageSlice("course", allCourses);
+    const allCourseRows = coursesWithTotals();
+    const allCourses = allCourseRows.filter((course) => {
+      const matchesPosition = !courseFilters.position || courseEducationLevels(course).includes(courseFilters.position);
+      const matchesStatus = courseFilters.status === "" || String(Number(course.isPublished) === 1 ? 1 : 0) === courseFilters.status;
+      return matchesPosition && matchesStatus;
+    });
+    const sortedCourses = courseSort.key === "name"
+      ? sortedByName(allCourses, courseSort.direction, (course) => course.name)
+      : allCourses;
+    const { rows: courses } = tablePageSlice("course", sortedCourses);
     const rows = courses.map((course) => {
       const isActive = Number(course.isPublished) === 1;
       const toggleAction = isActive ? "inactivate-course" : "activate-course";
@@ -1351,18 +1539,27 @@
         <div class="table-head">
           <div class="table-title">
             <h1>Course table</h1>
-            <span class="count-badge">${allCourses.length} course</span>
+            <span class="count-badge">${sortedCourses.length} course</span>
           </div>
-          <button class="create-btn" type="button" data-action="create-course">
-            <span>Create Course</span>
-            <i data-lucide="plus"></i>
-          </button>
+          <div class="table-head-actions">
+            ${courseFilterMenuHtml()}
+            ${courseModeToggleHtml("course")}
+            <button class="create-btn" type="button" data-action="create-course">
+              <span>Create Course</span>
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
         </div>
         <div class="table-scroll">
           <table class="data-table">
             <thead>
               <tr>
-                <th style="width: 25%;">Name <i class="sort-icon" data-lucide="arrow-down"></i></th>
+                <th style="width: 25%;">
+                  <button class="sort-header${courseSort.key === "name" ? " is-active" : ""}" type="button" data-action="sort-courses" data-sort-key="name">
+                    <span>Name</span>
+                    <i class="sort-icon" data-lucide="${courseSort.key === "name" ? sortIcon(courseSort.direction) : "arrow-down"}"></i>
+                  </button>
+                </th>
                 <th style="width: 25%;">Position</th>
                 <th style="width: 20%;">Status</th>
                 <th style="width: 30%;">Action</th>
@@ -1371,8 +1568,8 @@
             <tbody>${rows}</tbody>
           </table>
         </div>
-        ${allCourses.length ? "" : '<div class="empty-state">No courses found.</div>'}
-        ${tableFooterHtml("course", allCourses.length)}
+        ${sortedCourses.length ? "" : '<div class="empty-state">No courses found for this filter.</div>'}
+        ${tableFooterHtml("course", sortedCourses.length)}
       </section>
     `;
   }
@@ -1436,6 +1633,85 @@
             </div>
           </div>
         </form>
+      </section>
+    `;
+  }
+
+  function renderCreatePositionPage() {
+    return `
+      <section class="create-course-card">
+        <form class="create-course-form" data-form="position-page">
+          <div class="create-page-head">
+            <button class="back-link" type="button" data-action="back-position" aria-label="Back to position list">
+              <i data-lucide="arrow-left"></i>
+            </button>
+            <h1>Add Position</h1>
+            <div class="create-page-actions">
+              <button class="publish-btn" type="submit">
+                <span>Save</span>
+                <i data-lucide="plus"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="create-form-row">
+            <div class="create-form-copy">
+              <h2>Position Name</h2>
+              <p>Create a position option for this admin region</p>
+            </div>
+            <div class="create-form-control">
+              <input class="create-input" name="name" type="text" placeholder="Enter position name" required>
+              <div class="course-examples">
+                <strong>Examples:</strong>
+                <span>&bull; Guru/Karyawan TK</span>
+                <span>&bull; Driver</span>
+                <span>&bull; Teknisi</span>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+    `;
+  }
+
+  function renderViewPositionPage(positionId) {
+    const position = findPosition(positionId);
+
+    if (!position) {
+      return `
+        <section class="view-course-card">
+          <div class="view-course-head">
+            <button class="back-link" type="button" data-action="back-position" aria-label="Back to position list">
+              <i data-lucide="arrow-left"></i>
+            </button>
+            <h1>View Position</h1>
+          </div>
+          <div class="empty-state">Position was not found.</div>
+        </section>
+      `;
+    }
+
+    return `
+      <section class="view-course-card">
+        <div class="view-course-head">
+          <button class="back-link" type="button" data-action="back-position" aria-label="Back to position list">
+            <i data-lucide="arrow-left"></i>
+          </button>
+          <h1>View Position</h1>
+          <span class="view-eye" aria-hidden="true"><i data-lucide="eye"></i></span>
+        </div>
+
+        <div class="view-course-body">
+          <div class="view-field">
+            <span>Position Name</span>
+            <strong>${escapeHtml(position.name)}</strong>
+          </div>
+
+          <div class="view-field">
+            <span>Region</span>
+            <strong>${escapeHtml(position.regionScope || adminRegion)}</strong>
+          </div>
+        </div>
       </section>
     `;
   }
@@ -2114,7 +2390,7 @@
     const section = activeSection();
     const action = activeAction();
     const recordId = activeId();
-    pageTitle.textContent = sectionTitles[section];
+    pageTitle.textContent = section === "course" && activeCourseMode(section, action) === "position" ? "Position List" : sectionTitles[section];
     app.innerHTML = '<div class="empty-state">Loading data from database...</div>';
 
     try {
@@ -2139,6 +2415,34 @@
           <span style="color:black">Create Course</span>
         </div>
       `
+      : section === "course" && action === "positions"
+        ? `
+          <div class="breadcrumb">
+            <span>Course</span>
+            <i data-lucide="chevron-right"></i>
+            <span style="color:black">Position List</span>
+          </div>
+        `
+      : section === "course" && action === "position-create"
+        ? `
+          <div class="breadcrumb">
+            <span>Course</span>
+            <i data-lucide="chevron-right"></i>
+            <span>Position List</span>
+            <i data-lucide="chevron-right"></i>
+            <span style="color:black">Add Position</span>
+          </div>
+        `
+      : section === "course" && action === "position-view"
+        ? `
+          <div class="breadcrumb">
+            <span>Course</span>
+            <i data-lucide="chevron-right"></i>
+            <span>Position List</span>
+            <i data-lucide="chevron-right"></i>
+            <span style="color:black">View Position</span>
+          </div>
+        `
       : section === "course" && action === "view"
         ? `
           <div class="breadcrumb">
@@ -2262,7 +2566,10 @@
       ${section === "course" && action === "create" ? renderCreateCoursePage() : ""}
       ${section === "course" && action === "edit" ? renderEditCoursePage(recordId) : ""}
       ${section === "course" && action === "view" ? renderViewCoursePage(recordId) : ""}
-      ${section === "course" && action !== "create" && action !== "edit" && action !== "view" ? renderCourses() : ""}
+      ${section === "course" && action === "positions" ? renderPositions() : ""}
+      ${section === "course" && action === "position-create" ? renderCreatePositionPage() : ""}
+      ${section === "course" && action === "position-view" ? renderViewPositionPage(recordId) : ""}
+      ${section === "course" && !["create", "edit", "view", "positions", "position-create", "position-view"].includes(action) ? renderCourses() : ""}
       ${section === "questions" && action === "create" ? renderCreateQuestionBankPage() : ""}
       ${section === "questions" && action === "edit" ? renderEditQuestionBankPage(recordId) : ""}
       ${section === "questions" && action === "view" ? renderViewQuestionBankPage(recordId) : ""}
@@ -2284,7 +2591,7 @@
 
   // Opsi Position untuk modal Course.
   function educationOptions(selectedValue) {
-    return window.RecruitmentStore.educationLevels.map((level) => {
+    return positionNames().map((level) => {
       return `<option value="${escapeHtml(level)}"${level === selectedValue ? " selected" : ""}>${escapeHtml(level)}</option>`;
     }).join("");
   }
@@ -2292,6 +2599,7 @@
   function educationCheckboxesHtml(selectedValues = []) {
     const selected = new Set(selectedValues);
     const label = selectedValues.length ? selectedValues.join(", ") : "Select Position for the Course";
+    const levels = positionNames();
     return `
       <div class="position-multiselect" data-position-multiselect>
         <button class="position-multiselect-toggle" type="button" data-action="toggle-position-dropdown" aria-expanded="false">
@@ -2299,12 +2607,12 @@
           <i data-lucide="chevron-down"></i>
         </button>
         <div class="position-multiselect-menu" role="group" aria-label="Select positions for this course">
-          ${window.RecruitmentStore.educationLevels.map((level) => `
+          ${levels.length ? levels.map((level) => `
             <label class="position-checkbox">
               <input type="checkbox" name="educationLevels" value="${escapeHtml(level)}"${selected.has(level) ? " checked" : ""}>
               <span>${escapeHtml(level)}</span>
             </label>
-          `).join("")}
+          `).join("") : '<div class="position-empty-note">Add a position first for this region.</div>'}
         </div>
       </div>
     `;
@@ -3684,8 +3992,67 @@
           trigger.setAttribute("aria-expanded", String(willOpen));
         }
       }
+      if (action === "show-course-table") await navigate("course");
+      if (action === "show-position-table") await navigate("course", "positions");
       if (action === "create-course") await navigate("course", "create");
       if (action === "back-course") await navigate("course");
+      if (action === "apply-course-filter") {
+        const filterRoot = trigger.closest("#courseFilter");
+        courseFilterDrafts = {
+          position: filterRoot?.querySelector('[name="position"]')?.value || "",
+          status: filterRoot?.querySelector('[name="status"]')?.value || ""
+        };
+        courseFilters = { ...courseFilterDrafts };
+        tablePagination.course.page = 1;
+        refreshTableSection("course");
+      }
+      if (action === "apply-position-filter") {
+        const filterRoot = trigger.closest("#positionFilter");
+        positionFilterDrafts = {
+          name: filterRoot?.querySelector('[name="name"]')?.value || ""
+        };
+        positionFilters = { ...positionFilterDrafts };
+        tablePagination.position.page = 1;
+        refreshTableSection("position");
+      }
+      if (action === "sort-courses") {
+        const sortKey = trigger.dataset.sortKey || "name";
+        if (courseSort.key === sortKey) {
+          courseSort.direction = courseSort.direction === "asc" ? "desc" : "asc";
+        } else {
+          courseSort.key = sortKey;
+          courseSort.direction = "asc";
+        }
+        tablePagination.course.page = 1;
+        refreshTableSection("course");
+      }
+      if (action === "sort-positions") {
+        const sortKey = trigger.dataset.sortKey || "name";
+        if (positionSort.key === sortKey) {
+          positionSort.direction = positionSort.direction === "asc" ? "desc" : "asc";
+        } else {
+          positionSort.key = sortKey;
+          positionSort.direction = "asc";
+        }
+        tablePagination.position.page = 1;
+        refreshTableSection("position");
+      }
+      if (action === "create-position") await navigate("course", "position-create");
+      if (action === "back-position") await navigate("course", "positions");
+      if (action === "view-position") await navigate("course", "position-view", id);
+      if (action === "delete-position") {
+        const confirmed = await showConfirmDialog({
+          ...confirmOptions("delete"),
+          title: "Delete position?",
+          message: "This position will be removed only if it is not used by course or test data.",
+          confirmText: "Delete"
+        });
+        if (!confirmed) return;
+
+        await window.RecruitmentStore.deleteEducationLevel(id);
+        showFlash("Position has been deleted.");
+        await navigate("course", "positions");
+      }
       if (action === "view-course") await navigate("course", "view", id);
       if (action === "edit-course") await navigate("course", "edit", id);
       if (action === "activate-course" || action === "inactivate-course") {
@@ -4060,6 +4427,23 @@
       return;
     }
 
+    const courseFilter = event.target.closest("#courseFilter");
+    if (courseFilter && event.target.matches("select")) {
+      courseFilterDrafts = {
+        position: courseFilter.querySelector('[name="position"]').value,
+        status: courseFilter.querySelector('[name="status"]').value
+      };
+      return;
+    }
+
+    const positionFilter = event.target.closest("#positionFilter");
+    if (positionFilter && event.target.matches("select")) {
+      positionFilterDrafts = {
+        name: positionFilter.querySelector('[name="name"]').value
+      };
+      return;
+    }
+
     const positionDropdown = event.target.closest("[data-position-multiselect]");
     if (positionDropdown && event.target.matches('input[name="educationLevels"]')) {
       updatePositionDropdownLabel(positionDropdown);
@@ -4125,6 +4509,21 @@
     const id = form.dataset.id;
 
     try {
+      if (form.dataset.form === "position-page") {
+        const confirmed = await showConfirmDialog({
+          ...confirmOptions("submit"),
+          title: "Add position?",
+          message: "Position will be available for courses in this admin region.",
+          confirmText: "Save"
+        });
+        if (!confirmed) return;
+
+        const result = await window.RecruitmentStore.addEducationLevel(data);
+        showSuccessPopup("Position berhasil dibuat");
+        await navigate("course", "position-view", result.educationLevel.id);
+        return;
+      }
+
       // Form halaman Create/Edit Course memakai tombol Save/Save as Draft untuk menentukan status course.
       if (form.dataset.form === "course-page") {
         const submitter = event.submitter;

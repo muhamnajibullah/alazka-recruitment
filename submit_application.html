@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Teacher Application Form</title>
+  <title>Employee Application Form</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- Version query dipakai agar cPanel/browser tidak memakai CSS lama dari cache setelah deploy. -->
-  <link rel="stylesheet" href="css/application.css?v=20260521-token-flow">
+  <link rel="stylesheet" href="css/application.css?v=20260604-course-search">
 </head>
 <body>
   <main class="page" id="applicationPage">
@@ -52,19 +52,39 @@
 
         <div class="field-group">
           <label for="education">Position</label>
-          <!-- Pilihan education memakai 4 level default production: TK, SD, SMP, SMA. -->
-          <select id="education" name="education">
+          <!-- Select asli tetap dipakai untuk submit form; UI custom di bawah memberi search + scroll. -->
+          <select id="education" name="education" class="native-position-select" aria-hidden="true" tabindex="-1">
             <option value="">Select position</option>
           </select>
+          <div class="position-combobox" id="positionCombobox">
+            <button class="position-combobox-toggle" type="button" id="positionComboboxToggle" aria-haspopup="listbox" aria-expanded="false">
+              <span id="positionComboboxLabel">Select position</span>
+              <span class="position-combobox-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="position-combobox-panel" id="positionComboboxPanel">
+              <input class="position-search" id="positionSearch" type="text" autocomplete="off" placeholder="Search position">
+              <div class="position-options" id="positionOptions" role="listbox" aria-label="Position options"></div>
+            </div>
+          </div>
           <p class="field-error" id="educationError"></p>
         </div>
 
         <div class="field-group">
           <label for="course">Course</label>
-          <!-- Pilihan course tetap berasal dari database dan berubah mengikuti education yang dipilih. -->
-          <select id="course" name="course" disabled>
+          <!-- Select asli tetap dipakai untuk submit form; UI custom di bawah memberi search + scroll. -->
+          <select id="course" name="course" class="native-course-select" aria-hidden="true" tabindex="-1" disabled>
             <option value="">Select available course</option>
           </select>
+          <div class="course-combobox" id="courseCombobox">
+            <button class="course-combobox-toggle" type="button" id="courseComboboxToggle" aria-haspopup="listbox" aria-expanded="false" disabled>
+              <span id="courseComboboxLabel">Select available course</span>
+              <span class="course-combobox-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="course-combobox-panel" id="courseComboboxPanel">
+              <input class="course-search" id="courseSearch" type="text" autocomplete="off" placeholder="Search course">
+              <div class="course-options" id="courseOptions" role="listbox" aria-label="Course options"></div>
+            </div>
+          </div>
           <p class="field-error" id="courseError"></p>
         </div>
 
@@ -209,7 +229,7 @@
     Version query memaksa browser mengambil JS terbaru; tanpa ini cPanel sering masih menyajikan JS lama
     yang langsung memvalidasi token saat Start Test dan membuat halaman token tidak pernah tampil.
   -->
-  <script src="js/recruitment-store.js?v=20260521-token-flow"></script>
-  <script src="js/submit-application.js?v=20260521-token-flow"></script>
+  <script src="js/recruitment-store.js?v=20260604-course-search"></script>
+  <script src="js/submit-application.js?v=20260604-course-search"></script>
 </body>
 </html>
